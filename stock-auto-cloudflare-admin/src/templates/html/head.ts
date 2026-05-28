@@ -9,5 +9,6 @@ export const head = `<!DOCTYPE html>
   <link rel="stylesheet" href="/admin/css/dashboard.css">
   <link rel="stylesheet" href="/admin/css/logs.css">
   <link rel="stylesheet" href="/admin/css/modal.css">
+  <link rel="stylesheet" href="/admin/css/backtest.css">
 </head>
 <body>`;

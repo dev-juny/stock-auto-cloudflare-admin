@@ -10,6 +10,7 @@ import healthRoutes from './routes/health';
 import authRoutes from './routes/auth';
 import balanceRoutes from './routes/balance';
 import logsRoutes from './routes/logs';
+import backtestRoutes from './routes/backtest';
 
 export const createApp = () => {
   const app = express();
@@ -30,6 +31,7 @@ export const createApp = () => {
   app.use(authRoutes);
   app.use(balanceRoutes);
   app.use(logsRoutes);
+  app.use(backtestRoutes);
 
   // 에러 핸들러 (반드시 마지막)
   app.use(errorHandler);

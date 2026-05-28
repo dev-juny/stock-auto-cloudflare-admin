@@ -3,6 +3,7 @@ import { healthJs } from '../scripts/health';
 import { balanceJs } from '../scripts/balance';
 import { logsJs } from '../scripts/logs';
 import { modalJs } from '../scripts/modal';
+import { backtestJs } from '../scripts/backtest';
 import { bootJs } from '../scripts/boot';
 
 const scripts: Record<string, string> = {
@@ -11,6 +12,7 @@ const scripts: Record<string, string> = {
   '/admin/js/balance.js': balanceJs,
   '/admin/js/logs.js': logsJs,
   '/admin/js/modal.js': modalJs,
+  '/admin/js/backtest.js': backtestJs,
   '/admin/js/boot.js': bootJs,
 };
 

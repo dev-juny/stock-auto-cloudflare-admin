@@ -1,15 +1,7 @@
 import { statusCard } from './statusCard';
 import { balanceCard } from './balanceCard';
 import { logsCard } from './logsCard';
-
-const backtestPage = `
-<div id="backtestPage" class="page">
-  <div class="card">
-    <h3>📈 백테스트</h3>
-    <p style="color:#8b949e;font-size:14px">준비 중입니다.</p>
-  </div>
-</div>
-`;
+import { backtestCard } from './backtestCard';
 
 export const appScreen = `
 <div id="sidebarOverlay" class="sidebar-overlay" onclick="closeSidebar()"></div>
@@ -36,7 +28,9 @@ export const appScreen = `
       ${balanceCard}
       ${logsCard}
     </div>
-    ${backtestPage}
+    <div id="backtestPage" class="page">
+      ${backtestCard}
+    </div>
   </main>
 </div>
 `;

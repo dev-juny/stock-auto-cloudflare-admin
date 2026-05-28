@@ -3,6 +3,7 @@ import { loginCss } from '../css/login';
 import { dashboardCss } from '../css/dashboard';
 import { logsCss } from '../css/logs';
 import { modalCss } from '../css/modal';
+import { backtestCss } from '../css/backtest';
 
 const cssMap: Record<string, string> = {
   '/admin/css/base.css': baseCss,
@@ -10,6 +11,7 @@ const cssMap: Record<string, string> = {
   '/admin/css/dashboard.css': dashboardCss,
   '/admin/css/logs.css': logsCss,
   '/admin/css/modal.css': modalCss,
+  '/admin/css/backtest.css': backtestCss,
 };
 
 export const handleCss = (pathname: string): Response | null => {
