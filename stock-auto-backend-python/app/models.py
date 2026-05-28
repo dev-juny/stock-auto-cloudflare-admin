@@ -83,3 +83,32 @@ class TradeLogResponse(BaseModel):
     quantity: Optional[int] = None
     reason: Optional[str] = None
     traded_at: str
+
+
+class ScanResult(BaseModel):
+    ticker: str
+    name: str = ""
+    sector: str = ""
+    entry_date: str
+    entry_price: float
+    exit_date: Optional[str] = None
+    exit_reason: Optional[str] = None
+    exit_price: Optional[float] = None
+    pnl: float
+    holding_days: int
+
+
+class ScanStatus(BaseModel):
+    scan_id: str
+    status: str
+    total: int
+    processed: int
+    completed: int
+    results: list[ScanResult] = []
+    message: str = ""
+
+
+class TickerBacktestRequest(BaseModel):
+    ticker: str
+    entry_date: Optional[str] = None
+    config: BacktestConfig = Field(default_factory=BacktestConfig)

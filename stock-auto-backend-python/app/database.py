@@ -79,6 +79,29 @@ async def _ensure_tables() -> None:
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
         """,
+        """
+        CREATE TABLE IF NOT EXISTS kospi_stocks (
+            ticker VARCHAR2(6) PRIMARY KEY,
+            name VARCHAR2(200) NOT NULL,
+            sector VARCHAR2(200),
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+        """,
+        """
+        CREATE TABLE IF NOT EXISTS stock_daily_prices (
+            id NUMBER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+            ticker VARCHAR2(6) NOT NULL,
+            trade_date DATE NOT NULL,
+            open_price NUMBER(15,2),
+            high_price NUMBER(15,2),
+            low_price NUMBER(15,2),
+            close_price NUMBER(15,2),
+            volume NUMBER(15),
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            CONSTRAINT uk_ticker_date UNIQUE (ticker, trade_date)
+        )
+        """,
     ]
     pool = _pool
     if not pool:

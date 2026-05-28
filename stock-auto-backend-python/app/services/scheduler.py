@@ -2,15 +2,19 @@ from __future__ import annotations
 
 import asyncio
 import sys
+from datetime import date, datetime
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "stock-auto-backtest" / "src"))
 
 from app.database import execute_non_query, execute_query
 from app.services.kis import kis_client
+from app.services.kospi_data import run_daily_update
 from position_manager import BacktestConfig, PositionState  # type: ignore
 
 SCHEDULER_INTERVAL = 60  # seconds
+DAILY_UPDATE_INTERVAL = 3600  # check every hour if daily update is needed
+LAST_DAILY_UPDATE: date | None = None
 
 
 def _to_state(row: tuple) -> PositionState:
@@ -49,7 +53,6 @@ async def run_trading_loop() -> None:
 
         signal, reason = state.update_and_check_signal(price)
 
-        # Update DB
         await execute_non_query(
             "UPDATE active_positions SET "
             "highest_price = :1, is_break_even = :2, holding_days = :3, "
@@ -83,9 +86,28 @@ async def run_trading_loop() -> None:
 
 
 async def scheduler_loop() -> None:
+    global LAST_DAILY_UPDATE
+    cycles_since_daily = 0
+
     while True:
         try:
             await run_trading_loop()
         except Exception as e:
-            print(f"[SCHEDULER] Error: {e}")
+            print(f"[SCHEDULER] Trading loop error: {e}")
+
+        cycles_since_daily += 1
+        if cycles_since_daily >= DAILY_UPDATE_INTERVAL // SCHEDULER_INTERVAL:
+            cycles_since_daily = 0
+            try:
+                today = date.today()
+                if LAST_DAILY_UPDATE != today:
+                    print("[SCHEDULER] Running daily KOSPI data update...")
+                    stats = await run_daily_update()
+                    LAST_DAILY_UPDATE = today
+                    print(f"[SCHEDULER] Daily update: {stats}")
+                else:
+                    print("[SCHEDULER] Daily update already done today")
+            except Exception as e:
+                print(f"[SCHEDULER] Daily update error: {e}")
+
         await asyncio.sleep(SCHEDULER_INTERVAL)

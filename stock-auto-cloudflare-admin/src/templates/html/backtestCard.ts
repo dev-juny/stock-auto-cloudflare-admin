@@ -50,4 +50,57 @@ export const backtestCard = `
 <div class="card" id="btResult" style="min-height:200px">
   <p style="color:#8b949e;font-size:14px">가격을 추가하고 시뮬레이션을 실행하세요.</p>
 </div>
+
+<div class="card">
+  <h3>코스피 백테스트</h3>
+  <div class="scan-section">
+    <h4>단일 종목</h4>
+    <div class="scan-ticker-row">
+      <label>종목코드
+        <input id="btScanTicker" type="text" placeholder="005930" maxlength="6" style="width:80px">
+      </label>
+      <label>진입일자
+        <input id="btEntryDate" type="date" style="width:140px">
+      </label>
+      <button class="btn" onclick="runTickerBacktest()">시뮬레이션 실행</button>
+    </div>
+  </div>
+  <div class="scan-section">
+    <h4>코스피 전체 스캔</h4>
+    <p style="font-size:12px;color:#8b949e;margin:0 0 8px">모든 코스피 종목의 5년치 데이터로 PositionManager 청산 신호를 탐지합니다. (수 분 소요)</p>
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+      <button class="btn" id="btnStartScan" onclick="startKospiScan()">스캔 시작</button>
+    </div>
+    <div id="scanProgress" class="hidden" style="margin-top:8px">
+      <div class="scan-progress">
+        <span id="scanProgressLabel">0%</span>
+        <div class="scan-progress-bar"><div class="scan-progress-fill" id="scanProgressFill"></div></div>
+      </div>
+      <div class="scan-status-text" id="scanStatusText">준비 중...</div>
+    </div>
+  </div>
+</div>
+
+<div class="card hidden" id="scanResultsCard">
+  <h3>스캔 결과 <span style="font-size:12px;color:#8b949e;font-weight:400" id="scanResultCount"></span></h3>
+  <div style="overflow-x:auto">
+    <table class="scan-results-table" id="scanResultsTable">
+      <thead>
+        <tr>
+          <th>종목코드</th>
+          <th>종목명</th>
+          <th>업종</th>
+          <th>진입일</th>
+          <th>진입가</th>
+          <th>청산일</th>
+          <th>청산가</th>
+          <th>사유</th>
+          <th>수익률</th>
+          <th>보유일</th>
+        </tr>
+      </thead>
+      <tbody id="scanResultsBody"></tbody>
+    </table>
+  </div>
+</div>
 `;

@@ -320,4 +320,224 @@ function addPosition() {
     })
     .catch(function (e) { showAlert('등록 실패: ' + e.message) })
 }
+
+// ── KOSPI Backtest (single ticker via Python backend) ──
+function runTickerBacktest() {
+  var ticker = document.getElementById('btScanTicker').value.trim().toUpperCase().replace(/[^0-9]/g, '')
+  if (!ticker || ticker.length !== 6) { showAlert('6자리 종목코드를 입력하세요.'); return }
+
+  var entryDate = document.getElementById('btEntryDate').value || null
+
+  var config = {
+    fixedTakeProfitPct: parseFloat(document.getElementById('bt_takeProfit').value) || 0.07,
+    breakEvenActivationPct: parseFloat(document.getElementById('bt_breakEvenAct').value) || 0.07,
+    trailingActivationPct: parseFloat(document.getElementById('bt_trailAct').value) || 0.03,
+    trailingStopPct: parseFloat(document.getElementById('bt_trailStop').value) || 0.03,
+    stallExitDays: parseInt(document.getElementById('bt_stallDays').value) || 2,
+  }
+
+  var btn = document.querySelector('.btn[onclick*="runTickerBacktest"]')
+  btn.disabled = true
+  btn.textContent = '로딩 중...'
+
+  var body = { ticker: ticker, config: config }
+  if (entryDate) body.entry_date = entryDate
+
+  fetch('/api/backtest/ticker', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+    .then(function (r) {
+      if (!r.ok) return r.json().then(function (d) { throw new Error(d.detail || 'Failed') })
+      return r.json()
+    })
+    .then(function (data) {
+      renderTickerBacktestResult(data, ticker)
+    })
+    .catch(function (e) { showAlert('백테스트 실패: ' + e.message) })
+    .finally(function () {
+      btn.disabled = false
+      btn.textContent = '시뮬레이션 실행'
+    })
+}
+
+function renderTickerBacktestResult(data, ticker) {
+  var container = document.getElementById('btResult')
+  var exitLabel = (data.exit_reason && REASON_LABELS[data.exit_reason]) || data.exit_reason || '없음'
+  var pnlPct = (data.pnl * 100)
+
+  container.innerHTML = [
+    '<div class="result-summary">',
+      '<div class="stat"><div class="val ' + (pnlPct >= 0 ? 'profit-positive' : 'profit-negative') + '">' + pnlPct.toFixed(2) + '%</div><div class="label">수익률</div></div>',
+      '<div class="stat"><div class="val">' + (data.exit_day ? 'D+' + data.exit_day : '미청산') + '</div><div class="label">청산 시점</div></div>',
+      '<div class="stat"><div class="val">' + exitLabel + '</div><div class="label">청산 사유</div></div>',
+      '<div class="stat"><div class="val" style="font-size:14px">' + ticker + '</div><div class="label">종목코드</div></div>',
+    '</div>',
+    '<div id="btChart" class="backtest-chart-container"></div>',
+  ].join('')
+
+  renderTickerChart(data, ticker)
+}
+
+function renderTickerChart(data, ticker) {
+  var container = document.getElementById('btChart')
+  if (!container) return
+  if (_btChart) { _btChart.remove(); _btChart = null }
+
+  var chart = LightweightCharts.createChart(container, {
+    width: container.clientWidth,
+    height: 480,
+    layout: {
+      background: { color: '#0d1117' },
+      textColor: '#8b949e',
+    },
+    grid: {
+      vertLines: { color: '#1c2128' },
+      horzLines: { color: '#1c2128' },
+    },
+    crosshair: { mode: 0 },
+    timeScale: {
+      borderColor: '#30363d',
+      timeVisible: false,
+      secondsVisible: false,
+    },
+    rightPriceScale: { borderColor: '#30363d' },
+  })
+
+  var candleSeries = chart.addCandlestickSeries({
+    upColor: '#3fb950',
+    downColor: '#f85149',
+    borderDownColor: '#f85149',
+    borderUpColor: '#3fb950',
+    wickDownColor: '#f85149',
+    wickUpColor: '#3fb950',
+  })
+
+  candleSeries.setData(data.chart_data.map(function (c) {
+    return { time: c.time, open: c.open, high: c.high, low: c.low, close: c.close }
+  }))
+
+  candleSeries.setMarkers(data.markers)
+
+  chart.timeScale().fitContent()
+  _btChart = chart
+
+  function onResize() { chart.applyOptions({ width: container.clientWidth }) }
+  window.addEventListener('resize', onResize)
+  chart._resizeHandler = onResize
+}
+
+// ── KOSPI Batch Scan ──
+var _scanPollTimer = null
+
+function startKospiScan() {
+  var config = {
+    fixedTakeProfitPct: parseFloat(document.getElementById('bt_takeProfit').value) || 0.07,
+    breakEvenActivationPct: parseFloat(document.getElementById('bt_breakEvenAct').value) || 0.07,
+    trailingActivationPct: parseFloat(document.getElementById('bt_trailAct').value) || 0.03,
+    trailingStopPct: parseFloat(document.getElementById('bt_trailStop').value) || 0.03,
+    stallExitDays: parseInt(document.getElementById('bt_stallDays').value) || 2,
+  }
+
+  document.getElementById('btnStartScan').disabled = true
+  document.getElementById('btnStartScan').textContent = '스캔 중...'
+  document.getElementById('scanProgress').classList.remove('hidden')
+  document.getElementById('scanResultsCard').classList.add('hidden')
+  document.getElementById('scanResultsBody').innerHTML = ''
+
+  fetch('/api/backtest/scan', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ticker: 'SCAN', config: config }),
+  })
+    .then(function (r) { return r.json() })
+    .then(function (data) {
+      if (_scanPollTimer) clearInterval(_scanPollTimer)
+      _scanPollTimer = setInterval(function () { pollScanStatus(data.scan_id) }, 2000)
+      pollScanStatus(data.scan_id)
+    })
+    .catch(function (e) {
+      showAlert('스캔 시작 실패: ' + e.message)
+      resetScanButton()
+    })
+}
+
+function pollScanStatus(scanId) {
+  fetch('/api/backtest/scan/' + scanId)
+    .then(function (r) { return r.json() })
+    .then(function (data) {
+      updateScanProgress(data)
+      if (data.status === 'completed') {
+        clearInterval(_scanPollTimer)
+        _scanPollTimer = null
+        renderScanResults(data)
+        resetScanButton()
+      } else if (data.status === 'failed') {
+        clearInterval(_scanPollTimer)
+        _scanPollTimer = null
+        showAlert('스캔 실패: ' + data.message)
+        resetScanButton()
+      }
+    })
+    .catch(function () {
+      clearInterval(_scanPollTimer)
+      _scanPollTimer = null
+      resetScanButton()
+    })
+}
+
+function updateScanProgress(data) {
+  var pct = data.total > 0 ? Math.round(data.processed / data.total * 100) : 0
+  document.getElementById('scanProgressFill').style.width = pct + '%'
+  document.getElementById('scanProgressLabel').textContent = data.processed + '/' + data.total + ' (' + pct + '%)'
+  document.getElementById('scanStatusText').textContent = data.message || '처리 중...'
+}
+
+function renderScanResults(data) {
+  document.getElementById('scanResultsCard').classList.remove('hidden')
+  document.getElementById('scanResultCount').textContent = '(총 ' + data.completed + '개 청산 신호 탐지)'
+
+  var results = data.results || []
+  results.sort(function (a, b) { return Math.abs(b.pnl) - Math.abs(a.pnl) })
+
+  var tbody = document.getElementById('scanResultsBody')
+  if (results.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="10" style="color:#8b949e;text-align:center">탐지된 청산 신호가 없습니다.</td></tr>'
+    return
+  }
+
+  var REASON_LABELS_SCAN = {
+    take_profit: 'TP',
+    trailing_stop: 'TS',
+    break_even: 'BE',
+    stall_exit: 'SE',
+  }
+
+  tbody.innerHTML = results.map(function (r) {
+    var pnlPct = (r.pnl * 100)
+    var pnlClass = pnlPct >= 0 ? 'scan-positive' : 'scan-negative'
+    var reason = REASON_LABELS_SCAN[r.exit_reason] || r.exit_reason || '-'
+    var exitDate = r.exit_date || '-'
+    var exitPrice = r.exit_price ? r.exit_price.toLocaleString() : '-'
+    return '<tr>' +
+      '<td>' + r.ticker + '</td>' +
+      '<td>' + (r.name || '-') + '</td>' +
+      '<td>' + (r.sector || '-') + '</td>' +
+      '<td>' + r.entry_date + '</td>' +
+      '<td>' + r.entry_price.toLocaleString() + '</td>' +
+      '<td>' + exitDate + '</td>' +
+      '<td>' + exitPrice + '</td>' +
+      '<td>' + reason + '</td>' +
+      '<td class="' + pnlClass + '">' + pnlPct.toFixed(2) + '%</td>' +
+      '<td>' + r.holding_days + '</td>' +
+      '</tr>'
+  }).join('')
+}
+
+function resetScanButton() {
+  var btn = document.getElementById('btnStartScan')
+  btn.disabled = false
+  btn.textContent = '스캔 시작'
+}
 `;

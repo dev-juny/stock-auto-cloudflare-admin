@@ -1,14 +1,12 @@
-const PYTHON_PATHS = ['/api/backtest', '/api/positions'];
-
-const pickBackend = (pathname: string, baseUrl: string, pythonUrl: string): string => {
-  const base = (PYTHON_PATHS.some((p) => pathname.startsWith(p)) ? pythonUrl : baseUrl).replace(/\/+$/, '');
+const pickBackend = (pathname: string, baseUrl: string, _pythonUrl: string): string => {
+  const base = baseUrl.replace(/\/+$/, '');
   return `${base}${pathname}`;
 };
 
 export const handleApiProxy = async (
   request: Request,
   backendBaseUrl: string,
-  pythonBackendUrl: string
+  _pythonBackendUrl: string
 ): Promise<Response> => {
   const url = new URL(request.url);
 
@@ -23,7 +21,7 @@ export const handleApiProxy = async (
   }
 
   try {
-    const targetUrl = pickBackend(url.pathname + url.search, backendBaseUrl, pythonBackendUrl);
+    const targetUrl = pickBackend(url.pathname + url.search, backendBaseUrl, _pythonBackendUrl);
 
     const headers = new Headers();
     const auth = request.headers.get('Authorization');
