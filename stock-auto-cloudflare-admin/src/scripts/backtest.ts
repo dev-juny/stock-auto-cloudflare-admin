@@ -278,7 +278,7 @@ function loadActivePositions() {
           '<td class="' + profitClass + '">' + profitStr + '</td>' +
           '<td>' + (p.highest_price ? p.highest_price.toLocaleString() : '-') + '</td>' +
           '<td>' + p.holding_days + '</td>' +
-          '<td><button class="btn btn-danger" style="padding:4px 8px;font-size:11px" onclick="forceRemovePosition(\'' + p.ticker + '\')">삭제</button></td>' +
+          '<td><button class="btn btn-danger" style="padding:4px 8px;font-size:11px" data-ticker="' + p.ticker + '" onclick="forceRemovePosition(this.dataset.ticker)">삭제</button></td>' +
           '</tr>'
       }).join('')
     })

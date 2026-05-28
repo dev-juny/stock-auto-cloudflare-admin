@@ -17,6 +17,18 @@ export const backtestCard = `
     <label>정체 청산일 (stallExitDays)
       <input id="bt_stallDays" type="number" value="2" step="1">
     </label>
+    <label>순위 후보 제한 (rankingCandidateLimit)
+      <input id="bt_rankLimit" type="number" value="30" step="1">
+    </label>
+    <label>최대 동시 포지션 (maxConcurrentPositions)
+      <input id="bt_maxPos" type="number" value="10" step="1">
+    </label>
+    <label>최소 거래량 (minVolume)
+      <input id="bt_minVol" type="number" value="500000" step="10000">
+    </label>
+    <label>최대 변동성 (maxVolatility)
+      <input id="bt_maxVol" type="number" value="0.12" step="0.01">
+    </label>
   </div>
 </div>
 
