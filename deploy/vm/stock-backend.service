@@ -1,0 +1,17 @@
+[Unit]
+Description=Korea Stock Auto Trading Backend
+After=network.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/home/ubuntu/stock-auto-backend
+Environment="MASTER_SECRET=YOUR_SUPER_SECRET_MASTER_KEY_HERE"
+Environment="NODE_ENV=production"
+Environment="PATH=/usr/bin:/usr/local/bin"
+ExecStart=/usr/bin/node dist/index.js
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

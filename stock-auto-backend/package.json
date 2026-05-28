@@ -1,0 +1,35 @@
+{
+  "name": "stock-auto-backend",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "ts-node-dev --respawn src/index.ts",
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "test:db": "ts-node src/db/test-connection.ts",
+    "gen:hash": "ts-node scripts/generate-hash.ts",
+    "encrypt": "ts-node scripts/encrypt-secret.ts",
+    "load-data": "ts-node scripts/load-historical-data.ts"
+  },
+  "dependencies": {
+    "express": "^4.21.0",
+    "cors": "^2.8.5",
+    "cookie-parser": "^1.4.6",
+    "dotenv": "^16.4.5",
+    "oracledb": "^6.6.0",
+    "helmet": "^7.1.0",
+    "express-rate-limit": "^7.4.0",
+    "bcrypt": "^5.1.1",
+    "jsonwebtoken": "^9.0.2"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.0",
+    "@types/express": "^5.0.0",
+    "@types/cors": "^2.8.17",
+    "@types/cookie-parser": "^1.4.7",
+    "@types/node": "^22.0.0",
+    "@types/bcrypt": "^5.0.2",
+    "@types/jsonwebtoken": "^9.0.6",
+    "ts-node-dev": "^2.0.0"
+  }
+}

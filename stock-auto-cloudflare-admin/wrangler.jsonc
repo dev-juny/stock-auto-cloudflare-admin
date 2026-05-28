@@ -1,0 +1,16 @@
+{
+  "name": "stock-admin",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-05-20",
+  "compatibility_flags": ["nodejs_compat"],
+  "vars": {
+    "BACKEND_BASE_URL": "http://localhost:4000"
+  },
+  "env": {
+    "production": {
+      "vars": {
+        "BACKEND_BASE_URL": "http://juny-stock-auto.duckdns.org:4000"
+      }
+    }
+  }
+}
