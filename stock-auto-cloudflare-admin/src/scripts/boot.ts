@@ -1,5 +1,5 @@
 export const bootJs = `
-function refreshAll() { loadHealth(); loadBalance(); loadLogs() }
+function refreshAll() { loadHealth(); loadBalance(); loadLogs(); loadActivePositions() }
 
 // ── 사이드바 내비게이션 ──
 function toggleSidebar() {

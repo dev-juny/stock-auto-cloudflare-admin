@@ -147,4 +147,32 @@ export const backtestCss = `
   color: #8b949e;
   margin-top: 4px;
 }
+
+.backtest-chart-container {
+  width: 100%;
+  height: 480px;
+  margin-top: 1rem;
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.active-positions-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.active-positions-table th {
+  text-align: left;
+  padding: 8px;
+  border-bottom: 2px solid #30363d;
+  color: #8b949e;
+  font-weight: 600;
+  font-size: 12px;
+}
+.active-positions-table td {
+  padding: 8px;
+  border-bottom: 1px solid #21262d;
+}
+.pos-profit { color: #3fb950 }
+.pos-loss { color: #f85149 }
 `;

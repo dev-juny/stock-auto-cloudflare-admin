@@ -2,6 +2,7 @@ import { statusCard } from './statusCard';
 import { balanceCard } from './balanceCard';
 import { logsCard } from './logsCard';
 import { backtestCard } from './backtestCard';
+import { positionsCard } from './positionsCard';
 
 export const appScreen = `
 <div id="sidebarOverlay" class="sidebar-overlay" onclick="closeSidebar()"></div>
@@ -25,6 +26,7 @@ export const appScreen = `
   <main>
     <div id="dashboardPage" class="page active">
       ${statusCard}
+      ${positionsCard}
       ${balanceCard}
       ${logsCard}
     </div>
