@@ -393,11 +393,9 @@ function showBacktestDetail(ticker, entryDate, name) {
   overlay.classList.add('active')
 
   var statsEl = document.getElementById('detailModalStats')
-  var chartEl = document.getElementById('detailChart')
-  var gridEl = document.getElementById('detailModalGrid')
+  document.getElementById('detailTabChart').innerHTML = '<div class="detail-modal-chart" id="detailChart"></div>'
+  document.getElementById('detailTabGrid').innerHTML = '<div class="detail-modal-grid" id="detailModalGrid"></div>'
   statsEl.innerHTML = '<div class="detail-loading">로딩 중...</div>'
-  chartEl.innerHTML = ''
-  gridEl.innerHTML = ''
 
   fetch('/api/backtest/ticker', {
     method: 'POST',
@@ -416,9 +414,26 @@ function showBacktestDetail(ticker, entryDate, name) {
     })
 }
 
+var _detailData = null
+
+function switchDetailTab(tab) {
+  document.querySelectorAll('.detail-tab').forEach(function (b) { b.classList.toggle('active', b.dataset.tab === tab) })
+  document.querySelectorAll('.detail-tab-pane').forEach(function (p) { p.classList.toggle('active', p.id === 'detailTab' + tab.charAt(0).toUpperCase() + tab.slice(1)) })
+  if (tab === 'chart') {
+    if (_detailChart === null && _detailData) {
+      renderDetailChart(_detailData.data, _detailData.ticker)
+    } else if (_detailChart) {
+      var c = document.getElementById('detailChart')
+      if (c) _detailChart.resize(c.clientWidth, Math.max(c.clientHeight, 300))
+    }
+  }
+}
+
 function renderDetailView(data, ticker) {
+  _detailData = { data: data, ticker: ticker }
   var statsEl = document.getElementById('detailModalStats')
-  var gridEl = document.getElementById('detailModalGrid')
+  var chartPane = document.getElementById('detailTabChart')
+  var gridPane = document.getElementById('detailTabGrid')
   var ba = window._baseAmt || 1000000
   var exitLabel = (data.exit_reason && REASON_LABELS[data.exit_reason]) || data.exit_reason || '없음'
   var pnlPct = (data.pnl * 100)
@@ -433,7 +448,7 @@ function renderDetailView(data, ticker) {
       '<div class="stat"><div class="val">' + exitLabel + '</div><div class="label">청산 사유</div></div>',
     '</div>',
   ].join('')
-  gridEl.innerHTML = [
+  gridPane.innerHTML = [
     '<table class="backtest-result-table">',
       '<thead><tr><th>일자</th><th>구분</th><th>시가</th><th>최저가</th><th>최고가</th><th>종가</th><th>진입가</th><th>사유</th></tr></thead>',
       '<tbody>',
@@ -456,6 +471,8 @@ function renderDetailView(data, ticker) {
     '</table>',
   ].join('')
 
+  // Reset tabs to chart
+  switchDetailTab('chart')
   renderDetailChart(data, ticker)
 }
 
@@ -467,9 +484,10 @@ function renderDetailChart(data, ticker) {
   // Wait for modal to be visible before measuring
   requestAnimationFrame(function () {
     var w = Math.min(container.clientWidth, 900)
+    var h = Math.max(container.clientHeight, 300)
     var chart = LightweightCharts.createChart(container, {
       width: w,
-      height: 420,
+      height: h,
       layout: {
         background: { color: '#0d1117' },
         textColor: '#8b949e',
@@ -509,8 +527,10 @@ function renderDetailChart(data, ticker) {
 function closeDetailView() {
   document.getElementById('detailModalOverlay').classList.remove('active')
   if (_detailChart) { _detailChart.remove(); _detailChart = null }
+  _detailData = null
   document.getElementById('detailModalStats').innerHTML = ''
-  document.getElementById('detailModalGrid').innerHTML = ''
+  document.getElementById('detailTabChart').innerHTML = ''
+  document.getElementById('detailTabGrid').innerHTML = ''
 }
 
 function resetScanButton() {
@@ -653,8 +673,10 @@ function addPosition() {
     .catch(function (e) { showAlert('등록 실패: ' + e.message) })
 }
 
-// ── Event delegation for detail buttons ──
+// ── Event delegation for detail buttons and tabs ──
 document.addEventListener('click', function (e) {
+  var tab = e.target.closest('.detail-tab')
+  if (tab && tab.dataset.tab) { switchDetailTab(tab.dataset.tab); return }
   var btn = e.target.closest('.btn-detail')
   if (btn && btn.dataset.idx !== undefined && window._scanResults) {
     var r = window._scanResults[parseInt(btn.dataset.idx)]

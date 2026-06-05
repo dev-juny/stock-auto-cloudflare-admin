@@ -111,8 +111,18 @@ export const backtestCard = `
     </div>
     <div id="detailModalBody" class="detail-modal-body">
       <div class="detail-modal-stats" id="detailModalStats"></div>
-      <div class="detail-modal-chart" id="detailChart"></div>
-      <div class="detail-modal-grid" id="detailModalGrid"></div>
+      <div class="detail-tab-bar">
+        <button class="detail-tab active" data-tab="chart">차트</button>
+        <button class="detail-tab" data-tab="grid">거래내역</button>
+      </div>
+      <div class="detail-tab-content">
+        <div class="detail-tab-pane active" id="detailTabChart">
+          <div class="detail-modal-chart" id="detailChart"></div>
+        </div>
+        <div class="detail-tab-pane" id="detailTabGrid">
+          <div class="detail-modal-grid" id="detailModalGrid"></div>
+        </div>
+      </div>
     </div>
   </div>
 </div>
