@@ -33,8 +33,23 @@ def _cache_dir() -> Path:
     return p
 
 
+async def _fetch_tickers_by_market(sosok: int, market_label: str) -> list[dict[str, str]]:
+    import re
+
+    tickers: list[dict[str, str]] = []
+    for page in range(1, 50):
+        url = f"https://finance.naver.com/sise/sise_market_sum.naver?sosok={sosok}&page={page}"
+        resp = await _http.get(url)
+        matches = re.findall(r'code=(\d{6})[^>]*class="tltle">([^<]+)</a>', resp.text)
+        if not matches:
+            break
+        for code, name in matches:
+            if code.endswith("0"):
+                tickers.append({"ticker": code, "name": name, "sector": "", "market": market_label})
+    return tickers
+
+
 async def get_kospi_tickers() -> list[dict[str, str]]:
-    # Try KRX download first
     try:
         resp = await _http.get(KRX_URL)
         content = resp.content.decode("euc-kr")
@@ -45,26 +60,19 @@ async def get_kospi_tickers() -> list[dict[str, str]]:
                     "ticker": row["종목코드"].strip().zfill(6),
                     "name": row["종목명"].strip(),
                     "sector": row.get("업종", "").strip(),
+                    "market": "KOSPI",
                 }
                 for row in reader
             ]
     except Exception:
         pass
+    return await _fetch_tickers_by_market(0, "KOSPI")
 
-    # Fallback: scrape Naver market summary
-    import re
 
-    tickers: list[dict[str, str]] = []
-    for page in range(1, 50):
-        url = f"https://finance.naver.com/sise/sise_market_sum.naver?sosok=0&page={page}"
-        resp = await _http.get(url)
-        matches = re.findall(r'code=(\d{6})[^>]*class="tltle">([^<]+)</a>', resp.text)
-        if not matches:
-            break
-        for code, name in matches:
-            if code.endswith("0"):  # common shares only (skip preferred)
-                tickers.append({"ticker": code, "name": name, "sector": ""})
-    return tickers
+async def get_all_tickers() -> list[dict[str, str]]:
+    kospi = await get_kospi_tickers()
+    kosdaq = await _fetch_tickers_by_market(1, "KOSDAQ")
+    return kospi + kosdaq
 
 
 async def fetch_stock_data(ticker: str) -> list[dict[str, Any]]:

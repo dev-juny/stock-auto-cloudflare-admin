@@ -21,7 +21,7 @@ from app.models import (
     TradeEvent,
 )
 from app.services.chart import make_chart_data, make_markers
-from app.services.data_provider import fetch_stock_data, get_kospi_tickers
+from app.services.data_provider import fetch_stock_data, get_all_tickers
 from position_manager import BacktestConfig as BMC, PositionState  # type: ignore
 
 router = APIRouter(prefix="/api/backtest", tags=["backtest"])
@@ -37,6 +37,10 @@ def _to_bmc(cfg) -> BMC:
         trailing_activation_pct=cfg.trailingActivationPct,
         trailing_stop_pct=cfg.trailingStopPct,
         stall_exit_days=cfg.stallExitDays,
+        min_volume=cfg.minVolume,
+        max_volatility=cfg.maxVolatility,
+        ranking_candidate_limit=cfg.rankingCandidateLimit,
+        max_concurrent_positions=cfg.maxConcurrentPositions,
     )
 
 
@@ -96,15 +100,27 @@ async def run_backtest(req: BacktestRequest) -> BacktestResponse:
     exit_day: int | None = None
     exit_reason: str | None = None
 
-    for i, c in enumerate(req.candles):
+    # Entry day (i=0) — record as BUY
+    c0 = req.candles[0]
+    trades.append(
+        TradeEvent(day=1, date=c0.time, signal='BUY', reason=None, price=c0.close,
+                   open=c0.open, high=c0.high, low=c0.low, close=c0.close)
+    )
+    for i, c in enumerate(req.candles[1:], start=2):
         price = c.close
-        sig, reason = state.update_and_check_signal(price)
+        sig = 'HOLD'
+        reason = None
+        if exit_day is None:
+            sig, reason = state.update_and_check_signal(price)
+            if sig == "SELL":
+                exit_day = i
+                exit_reason = reason
+        elif exit_day is not None:
+            sig = 'NONE'
         trades.append(
-            TradeEvent(day=i + 1, date=c.time, signal=sig, reason=reason, price=price)
+            TradeEvent(day=i, date=c.time, signal=sig, reason=reason, price=price,
+                       open=c.open, high=c.high, low=c.low, close=c.close)
         )
-        if sig == "SELL" and exit_day is None:
-            exit_day = i + 1
-            exit_reason = reason
 
     chart_data = make_chart_data(
         [c.time for c in req.candles],
@@ -115,8 +131,12 @@ async def run_backtest(req: BacktestRequest) -> BacktestResponse:
     )
     markers = make_markers(req.entryDate, [t.model_dump() for t in trades])
 
-    last_price = req.candles[-1].close
-    pnl = (last_price - req.entryPrice) / req.entryPrice
+    if exit_day is not None:
+        exit_trade = trades[exit_day - 1]
+        pnl = (exit_trade.price - req.entryPrice) / req.entryPrice
+    else:
+        last_price = req.candles[-1].close
+        pnl = (last_price - req.entryPrice) / req.entryPrice
 
     return BacktestResponse(
         chart_data=[Candle(**d) for d in chart_data],
@@ -125,6 +145,7 @@ async def run_backtest(req: BacktestRequest) -> BacktestResponse:
         pnl=pnl,
         exit_day=exit_day,
         exit_reason=exit_reason,
+        entry_price=req.entryPrice,
     )
 
 
@@ -136,9 +157,19 @@ async def run_ticker_backtest(req: TickerBacktestRequest) -> BacktestResponse:
     if pool:
         sql = (
             "SELECT trade_date, open_price, high_price, low_price, close_price "
-            "FROM stock_daily_prices WHERE ticker = :1 ORDER BY trade_date"
+            "FROM stock_daily_prices WHERE ticker = :1"
         )
-        rows = await execute_query(sql, [req.ticker])
+        binds = [req.ticker]
+        bind_idx = 2
+        if req.start_date:
+            sql += f" AND trade_date >= TO_DATE(:{bind_idx},'YYYY-MM-DD')"
+            binds.append(req.start_date)
+            bind_idx += 1
+        if req.end_date:
+            sql += f" AND trade_date <= TO_DATE(:{bind_idx},'YYYY-MM-DD')"
+            binds.append(req.end_date)
+        sql += " ORDER BY trade_date"
+        rows = await execute_query(sql, binds)
         if rows:
             candles = [
                 Candle(
@@ -154,6 +185,10 @@ async def run_ticker_backtest(req: TickerBacktestRequest) -> BacktestResponse:
     if not candles:
         raw = await fetch_stock_data(req.ticker)
         if raw:
+            if req.start_date:
+                raw = [d for d in raw if d["time"] >= req.start_date]
+            if req.end_date:
+                raw = [d for d in raw if d["time"] <= req.end_date]
             candles = [
                 Candle(time=str(d["time"]), open=float(d["open"]), high=float(d["high"]), low=float(d["low"]), close=float(d["close"]))
                 for d in raw
@@ -209,31 +244,211 @@ async def get_scan_status(scan_id: str) -> ScanStatus:
     return ScanStatus(**state)
 
 
+_load_task: asyncio.Task | None = None
+_load_status: dict = {"status": "idle", "loaded": 0, "rows": 0, "error": ""}
+
+@router.post("/load-data")
+async def start_load_all_stock_data() -> dict:
+    global _load_task, _load_status
+
+    if _load_task and not _load_task.done():
+        return {"status": "running", "message": "Already loading data"}
+
+    _load_status = {"status": "running", "loaded": 0, "rows": 0, "error": ""}
+
+    async def _do_load():
+        global _load_status
+        try:
+            from app.services import kospi_data
+            n = await kospi_data.sync_kospi_tickers()
+            if n == 0:
+                _load_status = {"status": "failed", "loaded": 0, "rows": 0, "error": "Failed to sync tickers"}
+                return
+            stats = await kospi_data.load_all_historical()
+            _load_status = {"status": "completed", "loaded": stats.get("success", 0), "rows": stats.get("rows", 0), "error": ""}
+            try:
+                from app.database import execute_non_query
+                msg = f"[DATA-LOAD] {stats.get('success', 0)} stocks, {stats.get('rows', 0)} rows loaded"
+                await execute_non_query(
+                    "INSERT INTO trade_logs (ticker, action, price, quantity, reason) "
+                    "VALUES (:1, 'INFO', 0, 0, :2)",
+                    ["SYSTEM", msg],
+                )
+            except Exception:
+                pass
+        except Exception as e:
+            _load_status = {"status": "failed", "loaded": 0, "rows": 0, "error": str(e)}
+
+    _load_task = asyncio.create_task(_do_load())
+    return {"status": "started", "message": "Data loading started in background"}
+
+
+@router.get("/load-data/status")
+async def load_data_status() -> dict:
+    return _load_status
+
+
+async def _process_one_stock(
+    ticker_info: dict, bmc: BMC, start_date: str | None, end_date: str | None,
+    preloaded: list[dict] | None = None,
+) -> dict | None:
+    ticker = ticker_info["ticker"]
+    candles: list[dict] = []
+
+    if preloaded is not None:
+        candles = preloaded
+    else:
+        pool = get_pool()
+        if pool:
+            sql = (
+                "SELECT trade_date, open_price, high_price, low_price, close_price, volume "
+                "FROM stock_daily_prices WHERE ticker = :1"
+            )
+            binds = [ticker]
+            bind_idx = 2
+            if start_date:
+                sql += f" AND trade_date >= TO_DATE(:{bind_idx},'YYYY-MM-DD')"
+                binds.append(start_date)
+                bind_idx += 1
+            if end_date:
+                sql += f" AND trade_date <= TO_DATE(:{bind_idx},'YYYY-MM-DD')"
+                binds.append(end_date)
+            sql += " ORDER BY trade_date"
+            try:
+                rows = await execute_query(sql, binds)
+                if rows:
+                    candles = [
+                        {
+                            "time": str(r[0].date() if hasattr(r[0], "date") else r[0]),
+                            "open": float(r[1]),
+                            "high": float(r[2]),
+                            "low": float(r[3]),
+                            "close": float(r[4]),
+                            "volume": int(r[5]) if r[5] is not None else 0,
+                        }
+                        for r in rows
+                    ]
+            except Exception:
+                pass
+
+        if not candles:
+            data = await fetch_stock_data(ticker)
+            if not data:
+                return None
+            if start_date:
+                data = [d for d in data if d["time"] >= start_date]
+            if end_date:
+                data = [d for d in data if d["time"] <= end_date]
+            candles = data
+
+    if not candles:
+        return None
+
+    # Filter by volume & volatility
+    if bmc.min_volume > 0 or bmc.max_volatility < 1.0:
+        volumes = [c.get("volume", 0) or 0 for c in candles]
+        avg_volume = sum(volumes) / len(volumes) if volumes else 0
+        if bmc.min_volume > 0 and avg_volume < bmc.min_volume:
+            return None
+        if bmc.max_volatility < 1.0:
+            ranges = []
+            for c in candles:
+                high = c.get("high", 0) or 0
+                low = c.get("low", 0) or 0
+                close = c.get("close", 1) or 1
+                ranges.append((high - low) / close)
+            avg_volatility = sum(ranges) / len(ranges) if ranges else 0
+            if avg_volatility > bmc.max_volatility:
+                return None
+
+    result = _run_on_data(ticker, candles, bmc)
+    if result is None:
+        return None
+
+    result["name"] = ticker_info["name"]
+    result["sector"] = ticker_info["sector"]
+    result["market"] = ticker_info.get("market", "")
+    return result
+
+
 async def _run_scan(scan_id: str, req: TickerBacktestRequest) -> None:
     state = _scan_states[scan_id]
     bmc = _to_bmc(req.config)
+    start_date = req.start_date
+    end_date = req.end_date
 
     try:
-        state["message"] = "Fetching KOSPI tickers..."
-        tickers = await get_kospi_tickers()
+        state["message"] = "Fetching tickers..."
+        tickers = await get_all_tickers()
         state["total"] = len(tickers)
 
-        for t in tickers:
-            state["processed"] += 1
-            state["message"] = f"({state['processed']}/{state['total']}) {t['ticker']} {t['name']}"
+        # Pre-fetch Oracle candle data in batches
+        state["message"] = "Loading market data from DB..."
+        candle_map: dict[str, list[dict]] = {}
+        pool = get_pool()
+        if pool:
+            BATCH = 1000
+            codes = [t["ticker"] for t in tickers]
+            for i in range(0, len(codes), BATCH):
+                batch = codes[i:i + BATCH]
+                binds = list(batch)
+                ph = ', '.join(f':{j + 1}' for j in range(len(batch)))
+                sql = (
+                    "SELECT ticker, trade_date, open_price, high_price, low_price, close_price, volume "
+                    "FROM stock_daily_prices WHERE ticker IN (" + ph + ")"
+                )
+                bi = len(batch) + 1
+                if start_date:
+                    sql += f" AND trade_date >= TO_DATE(:{bi},'YYYY-MM-DD')"
+                    binds.append(start_date)
+                    bi += 1
+                if end_date:
+                    sql += f" AND trade_date <= TO_DATE(:{bi},'YYYY-MM-DD')"
+                    binds.append(end_date)
+                sql += " ORDER BY ticker, trade_date"
+                try:
+                    rows = await execute_query(sql, binds)
+                    for r in rows:
+                        t = str(r[0])
+                        candle = {
+                            "time": str(r[1].date() if hasattr(r[1], "date") else r[1]),
+                            "open": float(r[2]),
+                            "high": float(r[3]),
+                            "low": float(r[4]),
+                            "close": float(r[5]),
+                            "volume": int(r[6]) if r[6] is not None else 0,
+                        }
+                        candle_map.setdefault(t, []).append(candle)
+                except Exception as e:
+                    print(f"[WARN] Batch query failed ({i}..{i + len(batch)}): {e}")
 
-            data = await fetch_stock_data(t["ticker"])
-            if not data:
-                continue
+        state["message"] = f"Processing {state['total']} stocks..."
+        sem = asyncio.Semaphore(100)
 
-            result = _run_on_data(t["ticker"], data, bmc)
-            if result is None:
-                continue
+        async def process(t):
+            async with sem:
+                ticker = t["ticker"]
+                preloaded = candle_map.get(ticker)
+                return await _process_one_stock(t, bmc, start_date, end_date, preloaded=preloaded)
 
-            result["name"] = t["name"]
-            result["sector"] = t["sector"]
-            state["results"].append(result)
-            state["completed"] += 1
+        done = 0
+        pending = [process(t) for t in tickers]
+        for coro in asyncio.as_completed(pending):
+            result = await coro
+            done += 1
+            state["processed"] = done
+            if result:
+                state["results"].append(result)
+                state["completed"] += 1
+            if done % 50 == 0:
+                state["message"] = f"({done}/{state['total']}) {state['completed']} signals found"
+
+        # Apply rankingCandidateLimit
+        limit = req.config.rankingCandidateLimit
+        if limit > 0 and len(state["results"]) > limit:
+            state["results"].sort(key=lambda r: abs(r.get("pnl", 0)), reverse=True)
+            state["results"] = state["results"][:limit]
+            state["completed"] = len(state["results"])
 
         state["status"] = "completed"
         state["message"] = f"Scan completed. {state['completed']}/{state['total']} stocks processed."

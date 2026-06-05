@@ -16,15 +16,17 @@ export const modalCss = `
   border: 1px solid #30363d;
   border-radius: 8px;
   padding: 1.5rem 2rem;
-  max-width: 400px;
+  max-width: 480px;
   width: 90%;
   text-align: center;
 }
-.modal-box p {
+.modal-message {
   margin-bottom: 1.5rem;
-  font-size: 14px;
-  line-height: 1.6;
+  font-size: 13px;
+  line-height: 1.8;
   color: #c9d1d9;
+  white-space: pre-wrap;
+  text-align: left;
 }
 .modal-actions {
   display: flex;

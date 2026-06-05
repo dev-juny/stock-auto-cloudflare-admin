@@ -20,6 +20,9 @@ export const handleScript = (pathname: string): Response | null => {
   const js = scripts[pathname];
   if (!js) return null;
   return new Response(js, {
-    headers: { 'Content-Type': 'application/javascript; charset=utf-8' },
+    headers: {
+      'Content-Type': 'application/javascript; charset=utf-8',
+      'Cache-Control': 'no-cache, must-revalidate',
+    },
   });
 };

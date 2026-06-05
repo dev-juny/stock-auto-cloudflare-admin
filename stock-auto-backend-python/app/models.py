@@ -28,6 +28,10 @@ class BacktestConfig(BaseModel):
     trailingActivationPct: float = 0.03
     trailingStopPct: float = 0.03
     stallExitDays: int = 2
+    minVolume: int = 0
+    maxVolatility: float = 1.0
+    rankingCandidateLimit: int = 9999
+    maxConcurrentPositions: int = 9999
 
 
 class BacktestRequest(BaseModel):
@@ -44,6 +48,10 @@ class TradeEvent(BaseModel):
     signal: str
     reason: Optional[str] = None
     price: float
+    open: float = 0
+    high: float = 0
+    low: float = 0
+    close: float = 0
 
 
 class BacktestResponse(BaseModel):
@@ -53,6 +61,7 @@ class BacktestResponse(BaseModel):
     pnl: float
     exit_day: Optional[int] = None
     exit_reason: Optional[str] = None
+    entry_price: float = 0
 
 
 class PositionSyncRequest(BaseModel):
@@ -89,6 +98,7 @@ class ScanResult(BaseModel):
     ticker: str
     name: str = ""
     sector: str = ""
+    market: str = ""
     entry_date: str
     entry_price: float
     exit_date: Optional[str] = None
@@ -111,4 +121,6 @@ class ScanStatus(BaseModel):
 class TickerBacktestRequest(BaseModel):
     ticker: str
     entry_date: Optional[str] = None
+    start_date: Optional[str] = None
+    end_date: Optional[str] = None
     config: BacktestConfig = Field(default_factory=BacktestConfig)

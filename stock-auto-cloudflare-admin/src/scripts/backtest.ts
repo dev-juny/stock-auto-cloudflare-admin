@@ -1,4 +1,53 @@
 export const backtestJs = `
+// ── Parameter persistence ──
+var PARAM_IDS = ['bt_takeProfit','bt_breakEvenAct','bt_trailAct','bt_trailStop','bt_stallDays','bt_rankLimit','bt_maxPos','bt_minVol','bt_maxVol','bt_baseAmt']
+
+function saveParams() {
+  var obj = {}
+  PARAM_IDS.forEach(function (id) { obj[id] = document.getElementById(id).value })
+  try { localStorage.setItem('bt_params', JSON.stringify(obj)) } catch (e) {}
+}
+
+function loadParams() {
+  try {
+    var raw = localStorage.getItem('bt_params')
+    if (!raw) return
+    var obj = JSON.parse(raw)
+    PARAM_IDS.forEach(function (id) {
+      var el = document.getElementById(id)
+      if (el && obj[id] !== undefined) el.value = obj[id]
+    })
+  } catch (e) {}
+}
+
+// ── Date range defaults ──
+function initDates() {
+  var now = new Date()
+  var end = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1)
+  var start = new Date(end)
+  try {
+    var saved = localStorage.getItem('bt_dates')
+    if (saved) {
+      var d = JSON.parse(saved)
+      document.getElementById('btStartDate').value = d.start || ''
+      document.getElementById('btEndDate').value = d.end || ''
+      return
+    }
+  } catch (e) {}
+  start.setFullYear(start.getFullYear() - 5)
+  document.getElementById('btStartDate').value = start.toISOString().slice(0, 10)
+  document.getElementById('btEndDate').value = end.toISOString().slice(0, 10)
+}
+
+function saveDates() {
+  try {
+    localStorage.setItem('bt_dates', JSON.stringify({
+      start: document.getElementById('btStartDate').value,
+      end: document.getElementById('btEndDate').value,
+    }))
+  } catch (e) {}
+}
+
 // ── PositionManager equivalent (client-side) ──
 function simulateBacktest(config, entryPrice, dailyPrices) {
   var highest = entryPrice
@@ -21,28 +70,23 @@ function simulateBacktest(config, entryPrice, dailyPrices) {
     var signal = 'HOLD'
     var reason = ''
 
-    // 1. Fixed take profit
     if (profitPct >= config.fixedTakeProfitPct) {
       signal = 'SELL'; reason = 'take_profit'
     }
-    // 2. Trailing stop
     else if (peakProfitPct >= config.trailingActivationPct) {
       var dropRatio = 1 - config.trailingStopPct
       if (price < highest * dropRatio) {
         signal = 'SELL'; reason = 'trailing_stop'
       }
     }
-    // 3. Break-even stop
     else if (isBreakEven && price <= entryPrice) {
       signal = 'SELL'; reason = 'break_even'
     }
 
-    // 4. Activate break-even
     if (!isBreakEven && profitPct >= config.breakEvenActivationPct) {
       isBreakEven = true
     }
 
-    // 5. Stall exit
     if (signal === 'HOLD' && holdingDays >= config.stallExitDays && peakProfitPct < config.trailingActivationPct) {
       signal = 'SELL'; reason = 'stall_exit'
     }
@@ -80,51 +124,6 @@ function simulateBacktest(config, entryPrice, dailyPrices) {
   }
 }
 
-// ── UI ──
-function runBacktest() {
-  // Read params
-  var config = {
-    fixedTakeProfitPct: parseFloat(document.getElementById('bt_takeProfit').value) || 0.07,
-    breakEvenActivationPct: parseFloat(document.getElementById('bt_breakEvenAct').value) || 0.07,
-    trailingActivationPct: parseFloat(document.getElementById('bt_trailAct').value) || 0.03,
-    trailingStopPct: parseFloat(document.getElementById('bt_trailStop').value) || 0.03,
-    stallExitDays: parseInt(document.getElementById('bt_stallDays').value) || 2,
-  }
-
-  var entryPrice = parseFloat(document.getElementById('bt_entryPrice').value)
-  if (!entryPrice || entryPrice <= 0) { showAlert('진입 가격을 입력하세요.'); return }
-
-  // Collect daily prices
-  var priceElements = document.querySelectorAll('.bt-price-input')
-  var dailyPrices = []
-  priceElements.forEach(function (el) {
-    var val = parseFloat(el.value)
-    if (!isNaN(val) && val > 0) dailyPrices.push(val)
-  })
-
-  if (dailyPrices.length === 0) { showAlert('일별 가격을 하나 이상 추가하세요.'); return }
-
-  var result = simulateBacktest(config, entryPrice, dailyPrices)
-  renderBacktestResult(result, config, entryPrice)
-}
-
-function addPriceInput() {
-  var container = document.getElementById('btPriceList')
-  var input = document.createElement('div')
-  input.className = 'price-tag'
-  var dayNum = container.children.length + 1
-  input.innerHTML = '<span class="day-num">D' + dayNum + '</span> <input type="number" class="bt-price-input" step="1" placeholder="가격"> <span class="remove-price" onclick="this.parentElement.remove();updatePriceLabels()">✕</span>'
-  container.appendChild(input)
-}
-
-function updatePriceLabels() {
-  var container = document.getElementById('btPriceList')
-  var items = container.querySelectorAll('.price-tag')
-  items.forEach(function (el, i) {
-    el.querySelector('.day-num').textContent = 'D' + (i + 1)
-  })
-}
-
 var REASON_LABELS = {
   take_profit: '익절',
   trailing_stop: '트레일링 스탑',
@@ -133,128 +132,460 @@ var REASON_LABELS = {
 }
 var REASON_ABBR = { take_profit: 'TP', trailing_stop: 'TS', break_even: 'BE', stall_exit: 'SE' }
 
-function renderBacktestResult(result, config, entryPrice) {
-  var container = document.getElementById('btResult')
-  if (result.exitDay !== -1) {
-    var exitLabel = REASON_LABELS[result.exitReason] || result.exitReason
-    container.innerHTML = [
-      '<div class="result-summary">',
-        '<div class="stat"><div class="val ' + (result.pnl >= 0 ? 'profit-positive' : 'profit-negative') + '">' + result.pnl.toFixed(2) + '%</div><div class="label">수익률</div></div>',
-        '<div class="stat"><div class="val">' + (result.exitDay || '-') + '</div><div class="label">청산일 (D+' + (result.exitDay || '') + ')</div></div>',
-        '<div class="stat"><div class="val">' + (exitLabel) + '</div><div class="label">청산 사유</div></div>',
-        '<div class="stat"><div class="val">' + (result.exitPrice ? result.exitPrice.toLocaleString() : '-') + '</div><div class="label">청산 가격</div></div>',
-      '</div>',
-      '<div id="btChart" class="backtest-chart-container"></div>',
-      '<table class="backtest-result-table">',
-        '<thead><tr><th>일차</th><th>가격</th><th>수익률</th><th>고점</th><th>고점대비%</th><th>신호</th><th>사유</th><th>본절</th></tr></thead>',
-        '<tbody>',
-        result.results.map(function (r) {
-          var signalClass = r.signal === 'SELL' ? 'signal-sell' : 'signal-hold'
-          var profitClass = r.profitPct >= 0 ? 'profit-positive' : 'profit-negative'
-          var peakDrop = ((r.highest - r.price) / r.highest * 100).toFixed(1)
-          return '<tr>' +
-            '<td>' + r.day + '</td>' +
-            '<td>' + r.price.toLocaleString() + '</td>' +
-            '<td class="' + profitClass + '">' + (r.profitPct * 100).toFixed(2) + '%</td>' +
-            '<td>' + r.highest.toLocaleString() + '</td>' +
-            '<td>' + peakDrop + '%</td>' +
-            '<td class="' + signalClass + '">' + r.signal + '</td>' +
-            '<td>' + (REASON_LABELS[r.reason] || r.reason || '-') + '</td>' +
-            '<td>' + (r.isBreakEven ? '\u2713' : '') + '</td>' +
-            '</tr>'
-        }).join(''),
-        '</tbody>',
-      '</table>',
-    ].join('')
-    renderChart(result, entryPrice)
-  } else {
-    container.innerHTML = '<p style="color:#8b949e">종료 신호 없이 시뮬레이션이 종료되었습니다.</p>'
+// ── Backtest scan with date range ──
+var _scanPollTimer = null
+
+var _pageSize = 50
+var _currentPage = 1
+
+function runBacktestRange() {
+  saveDates()
+
+  // Parameter validation
+  var tp = parseFloat(document.getElementById('bt_takeProfit').value)
+  var be = parseFloat(document.getElementById('bt_breakEvenAct').value)
+  var ta = parseFloat(document.getElementById('bt_trailAct').value)
+  var ts = parseFloat(document.getElementById('bt_trailStop').value)
+  var sd = parseInt(document.getElementById('bt_stallDays').value)
+  var mv = parseInt(document.getElementById('bt_minVol').value)
+  var mvol = parseFloat(document.getElementById('bt_maxVol').value)
+  var rl = parseInt(document.getElementById('bt_rankLimit').value)
+  var ba = parseInt(document.getElementById('bt_baseAmt').value) || 1000000
+
+  if (!tp || tp <= 0) { showAlert('익절률은 0보다 커야 합니다.'); return }
+  if (!be || be <= 0) { showAlert('본절 활성화는 0보다 커야 합니다.'); return }
+  if (!ta || ta <= 0) { showAlert('트레일링 활성화는 0보다 커야 합니다.'); return }
+  if (!ts || ts <= 0) { showAlert('트레일링 스탑은 0보다 커야 합니다.'); return }
+  if (!sd || sd < 1) { showAlert('정체 청산일은 1일 이상이어야 합니다.'); return }
+  if (mv < 0) { showAlert('최소 거래량은 0 이상이어야 합니다.'); return }
+  if (!mvol || mvol <= 0 || mvol > 1) { showAlert('최대 변동성은 0~1 사이여야 합니다.'); return }
+  if (!rl || rl < 1) { showAlert('순위 후보 제한은 1 이상이어야 합니다.'); return }
+  if (!ba || ba < 1) { showAlert('기준 금액은 1원 이상이어야 합니다.'); return }
+
+  var config = {
+    fixedTakeProfitPct: tp,
+    breakEvenActivationPct: be,
+    trailingActivationPct: ta,
+    trailingStopPct: ts,
+    stallExitDays: sd,
+    minVolume: mv,
+    maxVolatility: mvol,
+    rankingCandidateLimit: rl,
   }
+
+  window._baseAmt = ba
+
+  var startDate = document.getElementById('btStartDate').value
+  var endDate = document.getElementById('btEndDate').value
+  if (!startDate || !endDate) { showAlert('시작일과 종료일을 모두 선택하세요.'); return }
+  if (startDate >= endDate) { showAlert('종료일은 시작일보다 이후여야 합니다.'); return }
+
+  var pct = function (v) { return (v * 100).toFixed(1) }
+
+  var dateRange = startDate + ' ~ ' + endDate
+  var summary =
+    '  기간: ' + dateRange + '\\n' +
+    '  익절률: ' + pct(tp) + '%  |  본절: ' + pct(be) + '%\\n' +
+    '  트레일링: ' + pct(ta) + '% / ' + pct(ts) + '%  |  정체청산: ' + sd + '일\\n' +
+    '  최소거래량: ' + mv.toLocaleString() + '  |  최대변동성: ' + pct(mvol) + '%\\n' +
+    '  후보제한: ' + rl + '개  |  기준금액: ' + ba.toLocaleString() + '원'
+
+  showConfirm('백테스트를 실행하시겠습니까?\\n' + summary).then(function (ok) {
+    if (!ok) return
+
+    document.getElementById('btnStartScan').disabled = true
+    document.getElementById('btnStartScan').textContent = '백테스트 중...'
+    document.getElementById('scanProgress').classList.remove('hidden')
+    document.getElementById('scanResultsCard').classList.add('hidden')
+    document.getElementById('scanResultsBody').innerHTML = ''
+    document.getElementById('paginationBar').classList.add('hidden')
+
+    fetch('/api/backtest/scan', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        ticker: 'SCAN',
+        config: config,
+        start_date: startDate,
+        end_date: endDate,
+      }),
+    })
+      .then(function (r) { return r.json() })
+      .then(function (data) {
+        if (_scanPollTimer) clearInterval(_scanPollTimer)
+        _scanPollTimer = setInterval(function () { pollScanStatus(data.scan_id) }, 2000)
+        pollScanStatus(data.scan_id)
+      })
+      .catch(function (e) {
+        showAlert('백테스트 실패: ' + e.message)
+        resetScanButton()
+      })
+  })
 }
 
-// ── TradingView Lightweight Charts ──
-var _btChart = null
+function pollScanStatus(scanId) {
+  fetch('/api/backtest/scan/' + scanId)
+    .then(function (r) { return r.json() })
+    .then(function (data) {
+      updateScanProgress(data)
+      if (data.status === 'completed') {
+        clearInterval(_scanPollTimer)
+        _scanPollTimer = null
+        renderScanResults(data)
+        resetScanButton()
+        showAlert('백테스트 완료: ' + (data.completed || 0) + '개 청산 신호 탐지됨')
+      } else if (data.status === 'failed') {
+        clearInterval(_scanPollTimer)
+        _scanPollTimer = null
+        showAlert('백테스트 실패: ' + data.message)
+        resetScanButton()
+      }
+    })
+    .catch(function () {
+      clearInterval(_scanPollTimer)
+      _scanPollTimer = null
+      resetScanButton()
+    })
+}
 
-function renderChart(result, entryPrice) {
-  var container = document.getElementById('btChart')
+function updateScanProgress(data) {
+  var pct = data.total > 0 ? Math.round(data.processed / data.total * 100) : 0
+  document.getElementById('scanProgressFill').style.width = pct + '%'
+  document.getElementById('scanProgressLabel').textContent = data.processed + '/' + data.total + ' (' + pct + '%)'
+  document.getElementById('scanStatusText').textContent = data.message || '처리 중...'
+}
+
+function renderScanResults(data) {
+  document.getElementById('scanResultsCard').classList.remove('hidden')
+
+  var results = data.results || []
+  results.sort(function (a, b) { return Math.abs(b.pnl) - Math.abs(a.pnl) })
+
+  window._scanResults = results
+  window._baseAmt = window._baseAmt || 1000000
+  _currentPage = 1
+
+  renderStats(results)
+  renderPage()
+}
+
+function renderStats(results) {
+  var ba = window._baseAmt || 1000000
+  var total = results.length
+  if (total === 0) {
+    document.getElementById('scanResultCount').textContent = '(탐지된 신호 없음)'
+    document.getElementById('statsBar').classList.add('hidden')
+    return
+  }
+
+  var wins = results.filter(function (r) { return r.pnl > 0 })
+  var losses = results.filter(function (r) { return r.pnl <= 0 })
+  var winRate = total > 0 ? (wins.length / total * 100) : 0
+  var avgWin = wins.length > 0 ? wins.reduce(function (s, r) { return s + r.pnl }, 0) / wins.length : 0
+  var avgLoss = losses.length > 0 ? losses.reduce(function (s, r) { return s + r.pnl }, 0) / losses.length : 0
+  var totalPnl = results.reduce(function (s, r) { return s + r.pnl }, 0)
+  var totalProfit = wins.reduce(function (s, r) { return s + r.pnl }, 0)
+  var totalLoss = Math.abs(losses.reduce(function (s, r) { return s + r.pnl }, 0))
+  var profitFactor = totalLoss > 0 ? (totalProfit / totalLoss) : (totalProfit > 0 ? Infinity : 0)
+  var bestPnl = results.reduce(function (m, r) { return Math.max(m, r.pnl) }, -Infinity)
+  var worstPnl = results.reduce(function (m, r) { return Math.min(m, r.pnl) }, Infinity)
+
+  document.getElementById('scanResultCount').textContent = '(총 ' + total + '건 | ' + wins.length + '승 ' + losses.length + '패)'
+  document.getElementById('statsWinRate').textContent = winRate.toFixed(1) + '%'
+  document.getElementById('statsAvgWin').textContent = (avgWin * 100).toFixed(2) + '%'
+  document.getElementById('statsAvgLoss').textContent = (avgLoss * 100).toFixed(2) + '%'
+  document.getElementById('statsProfitFactor').textContent = profitFactor === Infinity ? '&infin;' : profitFactor.toFixed(2)
+  document.getElementById('statsTotalReturn').textContent = (totalPnl * 100).toFixed(2) + '%'
+  document.getElementById('statsBestTrade').textContent = (bestPnl * 100).toFixed(2) + '%'
+  document.getElementById('statsWorstTrade').textContent = (worstPnl * 100).toFixed(2) + '%'
+  document.getElementById('statsTotalProfit').textContent = (totalPnl * ba).toLocaleString() + '원'
+  document.getElementById('statsBar').classList.remove('hidden')
+}
+
+function renderPage() {
+  var results = window._scanResults || []
+  var tbody = document.getElementById('scanResultsBody')
+  if (results.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="13" style="color:#8b949e;text-align:center">탐지된 청산 신호가 없습니다.</td></tr>'
+    document.getElementById('paginationBar').classList.add('hidden')
+    return
+  }
+
+  var REASON_LABELS_SCAN = {
+    take_profit: 'TP',
+    trailing_stop: 'TS',
+    break_even: 'BE',
+    stall_exit: 'SE',
+  }
+
+  var totalItems = results.length
+  var totalPages = Math.ceil(totalItems / _pageSize) || 1
+  if (_currentPage > totalPages) _currentPage = totalPages
+  var start = (_currentPage - 1) * _pageSize
+  var end = Math.min(start + _pageSize, totalItems)
+  var pageItems = results.slice(start, end)
+
+  var ba = window._baseAmt || 1000000
+  tbody.innerHTML = pageItems.map(function (r, i) {
+    var idx = start + i
+    var pnlPct = (r.pnl * 100)
+    var pnlClass = pnlPct >= 0 ? 'scan-positive' : 'scan-negative'
+    var profitAmt = r.pnl * ba
+    var profitClass = profitAmt >= 0 ? 'scan-positive' : 'scan-negative'
+    var reason = REASON_LABELS_SCAN[r.exit_reason] || r.exit_reason || '-'
+    var exitDate = r.exit_date || '-'
+    var exitPrice = r.exit_price ? r.exit_price.toLocaleString() : '-'
+    return '<tr>' +
+      '<td>' + r.ticker + '</td>' +
+      '<td>' + (r.name || '-') + '</td>' +
+      '<td>' + (r.market || '-') + '</td>' +
+      '<td>' + (r.sector || '-') + '</td>' +
+      '<td>' + r.entry_date + '</td>' +
+      '<td>' + r.entry_price.toLocaleString() + '</td>' +
+      '<td>' + exitDate + '</td>' +
+      '<td>' + exitPrice + '</td>' +
+      '<td>' + reason + '</td>' +
+      '<td class="' + pnlClass + '">' + pnlPct.toFixed(2) + '%</td>' +
+      '<td class="' + profitClass + '">' + profitAmt.toLocaleString() + '</td>' +
+      '<td>' + r.holding_days + '</td>' +
+      '<td><button class="btn btn-detail" data-idx="' + idx + '">상세보기</button></td>' +
+      '</tr>'
+  }).join('')
+
+  // Pagination info
+  document.getElementById('paginationInfo').textContent = end + ' / ' + totalItems
+  document.getElementById('pageIndicator').textContent = _currentPage + '/' + totalPages
+  document.getElementById('btnPrevPage').disabled = _currentPage <= 1
+  document.getElementById('btnNextPage').disabled = _currentPage >= totalPages
+  document.getElementById('paginationBar').classList.remove('hidden')
+}
+
+function changePage(delta) {
+  var results = window._scanResults || []
+  var totalPages = Math.ceil(results.length / _pageSize) || 1
+  var newPage = _currentPage + delta
+  if (newPage < 1 || newPage > totalPages) return
+  _currentPage = newPage
+  renderPage()
+  document.getElementById('scanResultsTable').scrollIntoView({ behavior: 'smooth', block: 'start' })
+}
+
+// ── Backtest detail view (TradingView chart modal) ──
+var _detailChart = null
+
+function showBacktestDetail(ticker, entryDate, name) {
+  var config = {
+    fixedTakeProfitPct: parseFloat(document.getElementById('bt_takeProfit').value) || 0.07,
+    breakEvenActivationPct: parseFloat(document.getElementById('bt_breakEvenAct').value) || 0.07,
+    trailingActivationPct: parseFloat(document.getElementById('bt_trailAct').value) || 0.03,
+    trailingStopPct: parseFloat(document.getElementById('bt_trailStop').value) || 0.03,
+    stallExitDays: parseInt(document.getElementById('bt_stallDays').value) || 2,
+    minVolume: parseInt(document.getElementById('bt_minVol').value) || 0,
+    maxVolatility: parseFloat(document.getElementById('bt_maxVol').value) || 1.0,
+    rankingCandidateLimit: parseInt(document.getElementById('bt_rankLimit').value) || 9999,
+  }
+
+  var startDate = document.getElementById('btStartDate').value
+  var endDate = document.getElementById('btEndDate').value
+
+  var overlay = document.getElementById('detailModalOverlay')
+  document.getElementById('detailModalTitle').textContent = (name || '') + ' (' + ticker + ')'
+  overlay.classList.add('active')
+
+  var statsEl = document.getElementById('detailModalStats')
+  var chartEl = document.getElementById('detailChart')
+  var gridEl = document.getElementById('detailModalGrid')
+  statsEl.innerHTML = '<div class="detail-loading">로딩 중...</div>'
+  chartEl.innerHTML = ''
+  gridEl.innerHTML = ''
+
+  fetch('/api/backtest/ticker', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ticker: ticker, entry_date: entryDate, config: config, start_date: startDate, end_date: endDate }),
+  })
+    .then(function (r) {
+      if (!r.ok) return r.json().then(function (d) { throw new Error(d.detail || 'Failed') })
+      return r.json()
+    })
+    .then(function (data) {
+      renderDetailView(data, ticker)
+    })
+    .catch(function (e) {
+      statsEl.innerHTML = '<div class="detail-error">로딩 실패: ' + e.message + '</div>'
+    })
+}
+
+function renderDetailView(data, ticker) {
+  var statsEl = document.getElementById('detailModalStats')
+  var gridEl = document.getElementById('detailModalGrid')
+  var ba = window._baseAmt || 1000000
+  var exitLabel = (data.exit_reason && REASON_LABELS[data.exit_reason]) || data.exit_reason || '없음'
+  var pnlPct = (data.pnl * 100)
+  var profitAmt = data.pnl * ba
+
+  var SIGNAL_LABEL = { 'BUY': '매수', 'HOLD': '홀드', 'SELL': '매도', 'NONE': '-' }
+  statsEl.innerHTML = [
+    '<div class="result-summary">',
+      '<div class="stat"><div class="val ' + (pnlPct >= 0 ? 'profit-positive' : 'profit-negative') + '">' + pnlPct.toFixed(2) + '%</div><div class="label">수익률</div></div>',
+      '<div class="stat"><div class="val ' + (profitAmt >= 0 ? 'profit-positive' : 'profit-negative') + '">' + profitAmt.toLocaleString() + '원</div><div class="label">수익금</div></div>',
+      '<div class="stat"><div class="val">' + (data.exit_day ? 'D+' + data.exit_day : '미청산') + '</div><div class="label">청산 시점</div></div>',
+      '<div class="stat"><div class="val">' + exitLabel + '</div><div class="label">청산 사유</div></div>',
+    '</div>',
+  ].join('')
+  gridEl.innerHTML = [
+    '<table class="backtest-result-table">',
+      '<thead><tr><th>일자</th><th>구분</th><th>시가</th><th>최저가</th><th>최고가</th><th>종가</th><th>진입가</th><th>사유</th></tr></thead>',
+      '<tbody>',
+      (data.trades || []).map(function (t) {
+        var entryPrice = data.entry_price || 0
+        var label = SIGNAL_LABEL[t.signal] || t.signal
+        var signalClass = ({ 'BUY': 'signal-buy', 'HOLD': 'signal-hold', 'SELL': 'signal-sell', 'NONE': 'signal-none' })[t.signal] || ''
+        return '<tr>' +
+          '<td>' + t.date + '</td>' +
+          '<td class="' + signalClass + '">' + label + '</td>' +
+          '<td>' + (t.open || 0).toLocaleString() + '</td>' +
+          '<td>' + (t.low || 0).toLocaleString() + '</td>' +
+          '<td>' + (t.high || 0).toLocaleString() + '</td>' +
+          '<td>' + (t.close || 0).toLocaleString() + '</td>' +
+          '<td>' + entryPrice.toLocaleString() + '</td>' +
+          '<td>' + (REASON_LABELS[t.reason] || t.reason || '-') + '</td>' +
+          '</tr>'
+      }).join(''),
+      '</tbody>',
+    '</table>',
+  ].join('')
+
+  renderDetailChart(data, ticker)
+}
+
+function renderDetailChart(data, ticker) {
+  var container = document.getElementById('detailChart')
   if (!container) return
-  if (_btChart) { _btChart.remove(); _btChart = null }
+  if (_detailChart) { _detailChart.remove(); _detailChart = null }
 
-  var chart = LightweightCharts.createChart(container, {
-    width: container.clientWidth,
-    height: 480,
-    layout: {
-      background: { color: '#0d1117' },
-      textColor: '#8b949e',
-    },
-    grid: {
-      vertLines: { color: '#1c2128' },
-      horzLines: { color: '#1c2128' },
-    },
-    crosshair: { mode: 0 },
-    timeScale: {
-      borderColor: '#30363d',
-      timeVisible: false,
-      secondsVisible: false,
-    },
-    rightPriceScale: { borderColor: '#30363d' },
+  // Wait for modal to be visible before measuring
+  requestAnimationFrame(function () {
+    var w = Math.min(container.clientWidth, 900)
+    var chart = LightweightCharts.createChart(container, {
+      width: w,
+      height: 420,
+      layout: {
+        background: { color: '#0d1117' },
+        textColor: '#8b949e',
+      },
+      grid: {
+        vertLines: { color: '#1c2128' },
+        horzLines: { color: '#1c2128' },
+      },
+      crosshair: { mode: 0 },
+      timeScale: {
+        borderColor: '#30363d',
+        timeVisible: true,
+        secondsVisible: false,
+      },
+      rightPriceScale: { borderColor: '#30363d' },
+    })
+
+    var candleSeries = chart.addCandlestickSeries({
+      upColor: '#3fb950',
+      downColor: '#f85149',
+      borderDownColor: '#f85149',
+      borderUpColor: '#3fb950',
+      wickDownColor: '#f85149',
+      wickUpColor: '#3fb950',
+    })
+
+    candleSeries.setData(data.chart_data.map(function (c) {
+      return { time: c.time, open: c.open, high: c.high, low: c.low, close: c.close }
+    }))
+
+    candleSeries.setMarkers(data.markers)
+    chart.timeScale().fitContent()
+    _detailChart = chart
   })
+}
 
-  var candleSeries = chart.addCandlestickSeries({
-    upColor: '#3fb950',
-    downColor: '#f85149',
-    borderDownColor: '#f85149',
-    borderUpColor: '#3fb950',
-    wickDownColor: '#f85149',
-    wickUpColor: '#3fb950',
-  })
+function closeDetailView() {
+  document.getElementById('detailModalOverlay').classList.remove('active')
+  if (_detailChart) { _detailChart.remove(); _detailChart = null }
+  document.getElementById('detailModalStats').innerHTML = ''
+  document.getElementById('detailModalGrid').innerHTML = ''
+}
 
-  // Build chart_data with simulated OHLC
-  var basePrice = entryPrice
-  var chartData = result.results.map(function (r, i) {
-    var prevPrice = i > 0 ? result.results[i - 1].price : entryPrice
-    var open = (i === 0) ? entryPrice : prevPrice
-    var close = r.price
-    var high = Math.max(open, close) * (1 + Math.random() * 0.005)
-    var low = Math.min(open, close) * (1 - Math.random() * 0.005)
-    var d = new Date(2026, 0, 2 + i)
-    var timeStr = d.toISOString().slice(0, 10)
-    return { time: timeStr, open: open, high: high, low: low, close: close }
-  })
+function resetScanButton() {
+  var btn = document.getElementById('btnStartScan')
+  btn.disabled = false
+  btn.textContent = '백테스트 실행'
+}
 
-  candleSeries.setData(chartData)
+// ── Load all stock data into Oracle ──
+var _dataLoading = false
+var _loadPollTimer = null
 
-  // Build markers
-  var markers = []
-  // Buy marker at day 1
-  markers.push({
-    time: chartData[0].time,
-    position: 'belowBar',
-    color: '#2196F3',
-    shape: 'arrowUp',
-    text: 'BUY',
-  })
-  // Sell marker
-  result.results.forEach(function (r, i) {
-    if (r.signal === 'SELL') {
-      markers.push({
-        time: chartData[i].time,
-        position: 'aboveBar',
-        color: '#E91E63',
-        shape: 'arrowDown',
-        text: REASON_ABBR[r.reason] || 'EXIT',
+function loadAllStockData() {
+  if (_dataLoading) return
+  showConfirm('국내주식 전체 데이터(5년치)를 Oracle VM에 적재하시겠습니까?\\n수 분 소요됩니다.').then(function (ok) {
+    if (!ok) return
+
+    _dataLoading = true
+    var btn = document.getElementById('btnLoadData')
+    btn.disabled = true
+    btn.textContent = '데이터 적재 시작 중...'
+
+    fetch('/api/backtest/load-data', { method: 'POST' })
+      .then(function (r) { return r.json() })
+      .then(function (data) {
+        if (data.status === 'started' || data.status === 'running') {
+          btn.textContent = '데이터 적재 중... (0%)'
+          if (_loadPollTimer) clearInterval(_loadPollTimer)
+          _loadPollTimer = setInterval(function () { pollLoadStatus() }, 3000)
+          pollLoadStatus()
+        } else if (data.status === 'completed') {
+          showAlert('데이터 적재 완료: ' + (data.loaded || 0) + '개 종목, ' + (data.rows || 0) + '개 행')
+          resetLoadButton()
+        } else {
+          showAlert('데이터 적재 실패: ' + (data.error || data.message || '알 수 없는 오류'))
+          resetLoadButton()
+        }
       })
-    }
+      .catch(function (e) {
+        showAlert('데이터 적재 요청 실패: ' + e.message)
+        resetLoadButton()
+      })
   })
-  candleSeries.setMarkers(markers)
+}
 
-  chart.timeScale().fitContent()
-  _btChart = chart
+function pollLoadStatus() {
+  fetch('/api/backtest/load-data/status')
+    .then(function (r) { return r.json() })
+    .then(function (data) {
+      var btn = document.getElementById('btnLoadData')
+      if (data.status === 'completed') {
+        clearInterval(_loadPollTimer)
+        _loadPollTimer = null
+        showAlert('데이터 적재 완료: ' + (data.loaded || 0) + '개 종목, ' + (data.rows || 0) + '개 행')
+        resetLoadButton()
+      } else if (data.status === 'failed') {
+        clearInterval(_loadPollTimer)
+        _loadPollTimer = null
+        showAlert('데이터 적재 실패: ' + (data.error || '알 수 없는 오류'))
+        resetLoadButton()
+      } else if (data.status === 'running' || data.status === 'started') {
+        btn.textContent = '데이터 적재 중...'
+      }
+    })
+    .catch(function () {
+      // ignore poll errors
+    })
+}
 
-  // Resize handler
-  function onResize() { chart.applyOptions({ width: container.clientWidth }) }
-  window.addEventListener('resize', onResize)
-  chart._resizeHandler = onResize
+function resetLoadButton() {
+  _dataLoading = false
+  if (_loadPollTimer) { clearInterval(_loadPollTimer); _loadPollTimer = null }
+  var btn = document.getElementById('btnLoadData')
+  btn.disabled = false
+  btn.textContent = '데이터 적재'
 }
 
 // ── Active Positions (from Python backend) ──
@@ -286,7 +617,8 @@ function loadActivePositions() {
 }
 
 function forceRemovePosition(ticker) {
-  showConfirm(ticker + ' 포지션을 강제 청산하시겠습니까?', function () {
+  showConfirm(ticker + ' 포지션을 강제 청산하시겠습니까?').then(function (ok) {
+    if (!ok) return
     fetch('/api/positions/' + ticker, { method: 'DELETE' })
       .then(function (r) { return r.json() })
       .then(function () {
@@ -321,223 +653,18 @@ function addPosition() {
     .catch(function (e) { showAlert('등록 실패: ' + e.message) })
 }
 
-// ── KOSPI Backtest (single ticker via Python backend) ──
-function runTickerBacktest() {
-  var ticker = document.getElementById('btScanTicker').value.trim().toUpperCase().replace(/[^0-9]/g, '')
-  if (!ticker || ticker.length !== 6) { showAlert('6자리 종목코드를 입력하세요.'); return }
-
-  var entryDate = document.getElementById('btEntryDate').value || null
-
-  var config = {
-    fixedTakeProfitPct: parseFloat(document.getElementById('bt_takeProfit').value) || 0.07,
-    breakEvenActivationPct: parseFloat(document.getElementById('bt_breakEvenAct').value) || 0.07,
-    trailingActivationPct: parseFloat(document.getElementById('bt_trailAct').value) || 0.03,
-    trailingStopPct: parseFloat(document.getElementById('bt_trailStop').value) || 0.03,
-    stallExitDays: parseInt(document.getElementById('bt_stallDays').value) || 2,
+// ── Event delegation for detail buttons ──
+document.addEventListener('click', function (e) {
+  var btn = e.target.closest('.btn-detail')
+  if (btn && btn.dataset.idx !== undefined && window._scanResults) {
+    var r = window._scanResults[parseInt(btn.dataset.idx)]
+    if (r) showBacktestDetail(r.ticker, r.entry_date, r.name)
   }
+})
 
-  var btn = document.querySelector('.btn[onclick*="runTickerBacktest"]')
-  btn.disabled = true
-  btn.textContent = '로딩 중...'
-
-  var body = { ticker: ticker, config: config }
-  if (entryDate) body.entry_date = entryDate
-
-  fetch('/api/backtest/ticker', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  })
-    .then(function (r) {
-      if (!r.ok) return r.json().then(function (d) { throw new Error(d.detail || 'Failed') })
-      return r.json()
-    })
-    .then(function (data) {
-      renderTickerBacktestResult(data, ticker)
-    })
-    .catch(function (e) { showAlert('백테스트 실패: ' + e.message) })
-    .finally(function () {
-      btn.disabled = false
-      btn.textContent = '시뮬레이션 실행'
-    })
-}
-
-function renderTickerBacktestResult(data, ticker) {
-  var container = document.getElementById('btResult')
-  var exitLabel = (data.exit_reason && REASON_LABELS[data.exit_reason]) || data.exit_reason || '없음'
-  var pnlPct = (data.pnl * 100)
-
-  container.innerHTML = [
-    '<div class="result-summary">',
-      '<div class="stat"><div class="val ' + (pnlPct >= 0 ? 'profit-positive' : 'profit-negative') + '">' + pnlPct.toFixed(2) + '%</div><div class="label">수익률</div></div>',
-      '<div class="stat"><div class="val">' + (data.exit_day ? 'D+' + data.exit_day : '미청산') + '</div><div class="label">청산 시점</div></div>',
-      '<div class="stat"><div class="val">' + exitLabel + '</div><div class="label">청산 사유</div></div>',
-      '<div class="stat"><div class="val" style="font-size:14px">' + ticker + '</div><div class="label">종목코드</div></div>',
-    '</div>',
-    '<div id="btChart" class="backtest-chart-container"></div>',
-  ].join('')
-
-  renderTickerChart(data, ticker)
-}
-
-function renderTickerChart(data, ticker) {
-  var container = document.getElementById('btChart')
-  if (!container) return
-  if (_btChart) { _btChart.remove(); _btChart = null }
-
-  var chart = LightweightCharts.createChart(container, {
-    width: container.clientWidth,
-    height: 480,
-    layout: {
-      background: { color: '#0d1117' },
-      textColor: '#8b949e',
-    },
-    grid: {
-      vertLines: { color: '#1c2128' },
-      horzLines: { color: '#1c2128' },
-    },
-    crosshair: { mode: 0 },
-    timeScale: {
-      borderColor: '#30363d',
-      timeVisible: false,
-      secondsVisible: false,
-    },
-    rightPriceScale: { borderColor: '#30363d' },
-  })
-
-  var candleSeries = chart.addCandlestickSeries({
-    upColor: '#3fb950',
-    downColor: '#f85149',
-    borderDownColor: '#f85149',
-    borderUpColor: '#3fb950',
-    wickDownColor: '#f85149',
-    wickUpColor: '#3fb950',
-  })
-
-  candleSeries.setData(data.chart_data.map(function (c) {
-    return { time: c.time, open: c.open, high: c.high, low: c.low, close: c.close }
-  }))
-
-  candleSeries.setMarkers(data.markers)
-
-  chart.timeScale().fitContent()
-  _btChart = chart
-
-  function onResize() { chart.applyOptions({ width: container.clientWidth }) }
-  window.addEventListener('resize', onResize)
-  chart._resizeHandler = onResize
-}
-
-// ── KOSPI Batch Scan ──
-var _scanPollTimer = null
-
-function startKospiScan() {
-  var config = {
-    fixedTakeProfitPct: parseFloat(document.getElementById('bt_takeProfit').value) || 0.07,
-    breakEvenActivationPct: parseFloat(document.getElementById('bt_breakEvenAct').value) || 0.07,
-    trailingActivationPct: parseFloat(document.getElementById('bt_trailAct').value) || 0.03,
-    trailingStopPct: parseFloat(document.getElementById('bt_trailStop').value) || 0.03,
-    stallExitDays: parseInt(document.getElementById('bt_stallDays').value) || 2,
-  }
-
-  document.getElementById('btnStartScan').disabled = true
-  document.getElementById('btnStartScan').textContent = '스캔 중...'
-  document.getElementById('scanProgress').classList.remove('hidden')
-  document.getElementById('scanResultsCard').classList.add('hidden')
-  document.getElementById('scanResultsBody').innerHTML = ''
-
-  fetch('/api/backtest/scan', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ ticker: 'SCAN', config: config }),
-  })
-    .then(function (r) { return r.json() })
-    .then(function (data) {
-      if (_scanPollTimer) clearInterval(_scanPollTimer)
-      _scanPollTimer = setInterval(function () { pollScanStatus(data.scan_id) }, 2000)
-      pollScanStatus(data.scan_id)
-    })
-    .catch(function (e) {
-      showAlert('스캔 시작 실패: ' + e.message)
-      resetScanButton()
-    })
-}
-
-function pollScanStatus(scanId) {
-  fetch('/api/backtest/scan/' + scanId)
-    .then(function (r) { return r.json() })
-    .then(function (data) {
-      updateScanProgress(data)
-      if (data.status === 'completed') {
-        clearInterval(_scanPollTimer)
-        _scanPollTimer = null
-        renderScanResults(data)
-        resetScanButton()
-      } else if (data.status === 'failed') {
-        clearInterval(_scanPollTimer)
-        _scanPollTimer = null
-        showAlert('스캔 실패: ' + data.message)
-        resetScanButton()
-      }
-    })
-    .catch(function () {
-      clearInterval(_scanPollTimer)
-      _scanPollTimer = null
-      resetScanButton()
-    })
-}
-
-function updateScanProgress(data) {
-  var pct = data.total > 0 ? Math.round(data.processed / data.total * 100) : 0
-  document.getElementById('scanProgressFill').style.width = pct + '%'
-  document.getElementById('scanProgressLabel').textContent = data.processed + '/' + data.total + ' (' + pct + '%)'
-  document.getElementById('scanStatusText').textContent = data.message || '처리 중...'
-}
-
-function renderScanResults(data) {
-  document.getElementById('scanResultsCard').classList.remove('hidden')
-  document.getElementById('scanResultCount').textContent = '(총 ' + data.completed + '개 청산 신호 탐지)'
-
-  var results = data.results || []
-  results.sort(function (a, b) { return Math.abs(b.pnl) - Math.abs(a.pnl) })
-
-  var tbody = document.getElementById('scanResultsBody')
-  if (results.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="10" style="color:#8b949e;text-align:center">탐지된 청산 신호가 없습니다.</td></tr>'
-    return
-  }
-
-  var REASON_LABELS_SCAN = {
-    take_profit: 'TP',
-    trailing_stop: 'TS',
-    break_even: 'BE',
-    stall_exit: 'SE',
-  }
-
-  tbody.innerHTML = results.map(function (r) {
-    var pnlPct = (r.pnl * 100)
-    var pnlClass = pnlPct >= 0 ? 'scan-positive' : 'scan-negative'
-    var reason = REASON_LABELS_SCAN[r.exit_reason] || r.exit_reason || '-'
-    var exitDate = r.exit_date || '-'
-    var exitPrice = r.exit_price ? r.exit_price.toLocaleString() : '-'
-    return '<tr>' +
-      '<td>' + r.ticker + '</td>' +
-      '<td>' + (r.name || '-') + '</td>' +
-      '<td>' + (r.sector || '-') + '</td>' +
-      '<td>' + r.entry_date + '</td>' +
-      '<td>' + r.entry_price.toLocaleString() + '</td>' +
-      '<td>' + exitDate + '</td>' +
-      '<td>' + exitPrice + '</td>' +
-      '<td>' + reason + '</td>' +
-      '<td class="' + pnlClass + '">' + pnlPct.toFixed(2) + '%</td>' +
-      '<td>' + r.holding_days + '</td>' +
-      '</tr>'
-  }).join('')
-}
-
-function resetScanButton() {
-  var btn = document.getElementById('btnStartScan')
-  btn.disabled = false
-  btn.textContent = '스캔 시작'
-}
+// ── Init ──
+document.addEventListener('DOMContentLoaded', function () {
+  loadParams()
+  initDates()
+})
 `;

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import sys
 from datetime import date, datetime
 from pathlib import Path
@@ -79,6 +80,19 @@ async def upsert_prices(ticker: str, candles: list[dict[str, Any]]) -> int:
         conn.close()
 
 
+async def _load_one_stock(
+    ticker: str, name: str
+) -> tuple[str, int, str | None]:
+    try:
+        data = await fetch_stock_data(ticker)
+        if not data:
+            return ticker, 0, "no data"
+        n = await upsert_prices(ticker, data)
+        return ticker, n, None
+    except Exception as e:
+        return ticker, 0, str(e)
+
+
 async def load_all_historical(
     progress: Optional[Callable[[int, int, str, str], None]] = None,
 ) -> dict[str, Any]:
@@ -97,20 +111,26 @@ async def load_all_historical(
         "errors": [],
     }
 
-    for i, (ticker, name) in enumerate(rows):
-        if progress:
-            progress(i, len(rows), ticker, name)
-        try:
-            data = await fetch_stock_data(ticker)
-            if not data:
-                stats["failed"] += 1
-                continue
-            n = await upsert_prices(ticker, data)
-            stats["rows"] += n
-            stats["success"] += 1
-        except Exception as e:
-            stats["failed"] += 1
-            stats["errors"].append(f"{ticker}: {e}")
+    sem = asyncio.Semaphore(10)
+    lock = asyncio.Lock()
+
+    async def process(row):
+        ticker, name = row
+        async with sem:
+            done = stats["success"] + stats["failed"]
+            if progress:
+                progress(done, len(rows), ticker, name)
+            result_ticker, n, err = await _load_one_stock(ticker, name)
+            async with lock:
+                if err:
+                    stats["failed"] += 1
+                    stats["errors"].append(f"{ticker}: {err}")
+                else:
+                    stats["rows"] += n
+                    if n > 0:
+                        stats["success"] += 1
+
+    await asyncio.gather(*[process(r) for r in rows])
 
     return stats
 
