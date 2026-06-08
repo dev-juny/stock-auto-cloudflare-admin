@@ -399,12 +399,20 @@ function renderPortfolio() {
       else if (h.status === '매도') cls = 'pos-sell'
       else if (h.status === '트레일링') cls = 'pos-trailing'
       else if (h.status === 'BE') cls = 'pos-be'
-      var name = h.name || ''
+      var label = h.status === '매도' ? '매도가' : '현재가'
+      var price = h.current_price.toLocaleString()
+      var profitCls = h.profit_amt >= 0 ? 'scan-positive' : 'scan-negative'
+      var reasonStr = h.reason ? ' (' + h.reason + ')' : ''
       return '<div class="portfolio-pos">' +
-        '<span class="' + cls + '">' + h.ticker + '</span>' +
-        ' <span style="color:#8b949e">' + name + '</span>' +
-        ' <span style="color:#484f58">|</span> 진입가 ' + h.entry_price.toLocaleString() +
-        ' <span class="' + cls + '">' + h.status + '</span>' +
+        '<div><span class="' + cls + '">' + h.ticker + '</span>' +
+        ' <span class="pos-name">' + (h.name || '') + '</span></div>' +
+        '<div class="pos-details">' +
+        '진입가 <span class="pos-val">' + h.entry_price.toLocaleString() + '</span>원' +
+        ' | ' + label + ' <span class="pos-val">' + price + '</span>원' +
+        ' | ' + (h.shares || 0) + '주' +
+        ' | <span class="' + profitCls + '">' + h.profit_amt.toLocaleString() + '원 (' + (h.pnl_pct * 100).toFixed(2) + '%)</span>' +
+        ' <span class="' + cls + '">' + h.status + reasonStr + '</span>' +
+        '</div>' +
         '</div>'
     }).join('')
 

@@ -496,8 +496,10 @@ export const backtestCss = `
   top: 0;
   background: #0d1117;
 }
-.portfolio-pos { font-size: 12px; margin: 1px 0 }
-.portfolio-pos span { display: inline-block; margin-right: 6px }
+.portfolio-pos { font-size: 12px; margin: 4px 0; padding: 4px 6px; background: #161b22; border-radius: 4px; line-height: 1.6 }
+.portfolio-pos .pos-name { color: #8b949e; font-size: 11px }
+.portfolio-pos .pos-details { font-size: 11px; color: #8b949e; margin-top: 2px }
+.portfolio-pos .pos-val { color: #c9d1d9; font-weight: 600 }
 .portfolio-pos .pos-buy { color: #3fb950 }
 .portfolio-pos .pos-hold { color: #58a6ff }
 .portfolio-pos .pos-sell { color: #f85149 }

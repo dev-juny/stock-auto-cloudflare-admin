@@ -112,6 +112,7 @@ class PortfolioHolding(BaseModel):
     ticker: str
     name: str = ""
     entry_price: float
+    shares: int = 0
     current_price: float
     status: str
     reason: Optional[str] = None

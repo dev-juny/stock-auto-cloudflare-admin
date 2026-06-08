@@ -452,11 +452,14 @@ async def _build_portfolio_timeline(results: list[dict], candle_map: dict[str, l
                 label = "BE"
             else:
                 label = "홀드"
-            pnl = (info["current_price"] - info["entry_price"]) / info["entry_price"] if info["entry_price"] else 0
+            entry = info["entry_price"]
+            curr = info["current_price"]
+            pnl = (curr - entry) / entry if entry else 0
+            shares = int(pos_size / entry) if entry > 0 else 0
             holdings.append({
                 "ticker": ticker, "name": names.get(ticker, ""),
-                "entry_price": info["entry_price"],
-                "current_price": info["current_price"], "status": label,
+                "entry_price": entry, "shares": shares,
+                "current_price": curr, "status": label,
                 "reason": info.get("reason"), "pnl_pct": round(pnl, 6),
                 "profit_amt": round(pnl * pos_size, 2),
             })
