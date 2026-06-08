@@ -215,9 +215,8 @@ function runBacktestRange() {
     })
       .then(function (r) { return r.json() })
       .then(function (data) {
-        if (_scanPollTimer) clearInterval(_scanPollTimer)
-        _scanPollTimer = setInterval(function () { pollScanStatus(data.scan_id) }, 2000)
-        pollScanStatus(data.scan_id)
+        if (_scanPollTimer) clearTimeout(_scanPollTimer)
+        startPolling(data.scan_id)
       })
       .catch(function (e) {
         showAlert('백테스트 실패: ' + e.message)
@@ -226,26 +225,32 @@ function runBacktestRange() {
   })
 }
 
+function startPolling(scanId) {
+  pollScanStatus(scanId)
+}
+
 function pollScanStatus(scanId) {
   fetch('/api/backtest/scan/' + scanId)
     .then(function (r) { return r.json() })
     .then(function (data) {
       updateScanProgress(data)
       if (data.status === 'completed') {
-        clearInterval(_scanPollTimer)
+        if (_scanPollTimer) clearTimeout(_scanPollTimer)
         _scanPollTimer = null
         renderScanResults(data)
         resetScanButton()
         showAlert('백테스트 완료: ' + (data.completed || 0) + '개 청산 신호 탐지됨')
       } else if (data.status === 'failed') {
-        clearInterval(_scanPollTimer)
+        if (_scanPollTimer) clearTimeout(_scanPollTimer)
         _scanPollTimer = null
         showAlert('백테스트 실패: ' + data.message)
         resetScanButton()
+      } else {
+        _scanPollTimer = setTimeout(function () { pollScanStatus(scanId) }, 2000)
       }
     })
     .catch(function () {
-      clearInterval(_scanPollTimer)
+      if (_scanPollTimer) clearTimeout(_scanPollTimer)
       _scanPollTimer = null
       resetScanButton()
     })

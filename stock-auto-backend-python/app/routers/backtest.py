@@ -440,13 +440,6 @@ async def _build_portfolio_timeline(results: list[dict], candle_map: dict[str, l
                 active[ticker].update(td)
                 active[ticker]["current_price"] = td["price"]
 
-        for ticker in list(active.keys()):
-            if active[ticker]["signal"] == "SELL":
-                info = active[ticker]
-                pnl = (info["current_price"] - info["entry_price"]) / info["entry_price"]
-                cash += pos_size * (1 + pnl)
-                del active[ticker]
-
         holdings = []
         for ticker, info in sorted(active.items()):
             if info["signal"] == "BUY":
@@ -468,7 +461,14 @@ async def _build_portfolio_timeline(results: list[dict], candle_map: dict[str, l
                 "profit_amt": round(pnl * pos_size, 2),
             })
 
-        equity = sum(h["pnl_pct"] * pos_size + pos_size for h in holdings)
+        for ticker in list(active.keys()):
+            if active[ticker]["signal"] == "SELL":
+                info = active[ticker]
+                pnl = (info["current_price"] - info["entry_price"]) / info["entry_price"]
+                cash += pos_size * (1 + pnl)
+                del active[ticker]
+
+        equity = sum(h["pnl_pct"] * pos_size + pos_size for h in holdings if h["status"] != "매도")
         tv = cash + equity
         portfolio.append({
             "date": date, "holdings": holdings, "cash": round(cash, 2),
