@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import sys
 from datetime import date, datetime
 from pathlib import Path
@@ -12,12 +13,53 @@ from app.services.kis import kis_client
 from app.services.kospi_data import run_daily_update
 from position_manager import BacktestConfig, PositionState  # type: ignore
 
-SCHEDULER_INTERVAL = 60  # seconds
-DAILY_UPDATE_INTERVAL = 3600  # check every hour if daily update is needed
+SCHEDULER_INTERVAL = 60  # seconds (overridden by DB if set)
+DAILY_UPDATE_INTERVAL = 3600
 LAST_DAILY_UPDATE: date | None = None
 
+_BREADTH_CACHE: dict = {"pct": 1.0, "at": None}
 
-def _to_state(row: tuple) -> PositionState:
+
+def _dict_to_bmc(d: dict) -> BacktestConfig:
+    return BacktestConfig(
+        fixed_take_profit_pct=d.get("fixedTakeProfitPct", d.get("fixed_take_profit_pct", 0.07)),
+        break_even_activation_pct=d.get("breakEvenActivationPct", d.get("break_even_activation_pct", 0.07)),
+        trailing_activation_pct=d.get("trailingActivationPct", d.get("trailing_activation_pct", 0.03)),
+        trailing_stop_pct=d.get("trailingStopPct", d.get("trailing_stop_pct", 0.03)),
+        stall_exit_days=d.get("stallExitDays", d.get("stall_exit_days", 2)),
+        min_volume=0,
+        max_volatility=1.0,
+        ranking_candidate_limit=9999,
+        max_concurrent_positions=d.get("maxConcurrentPositions", d.get("max_concurrent_positions", 9999)),
+    )
+
+
+async def _load_scheduler_config() -> tuple[int, float]:
+    try:
+        rows = await execute_query(
+            "SELECT interval_seconds, breadth_threshold FROM scheduler_config ORDER BY id DESC FETCH FIRST 1 ROW ONLY"
+        )
+        if rows:
+            return int(rows[0][0]) if rows[0][0] else 60, float(rows[0][1]) if rows[0][1] else 0.3
+    except Exception:
+        pass
+    return 60, 0.3
+
+
+async def _load_active_config() -> BacktestConfig | None:
+    try:
+        rows = await execute_query(
+            "SELECT params FROM saved_configs WHERE is_active = 'Y' FETCH FIRST 1 ROW ONLY"
+        )
+        if rows and rows[0][0]:
+            d = json.loads(rows[0][0])
+            return _dict_to_bmc(d)
+    except Exception:
+        pass
+    return None
+
+
+def _to_state(row: tuple, bmc: BacktestConfig | None) -> PositionState:
     return PositionState(
         ticker=row[1],
         entry_date=str(row[2]) if row[2] else "",
@@ -26,25 +68,41 @@ def _to_state(row: tuple) -> PositionState:
         highest_price_since_entry=float(row[5]) if row[5] else float(row[3]),
         is_break_even_activated=(row[6] == "Y") if row[6] else False,
         holding_days=int(row[7]) if row[7] else 0,
-        config=BacktestConfig(),
+        config=bmc or BacktestConfig(),
     )
 
 
 async def run_trading_loop() -> None:
     print("[SCHEDULER] Cycle start")
+    bmc = await _load_active_config()
+    interval, breadth_threshold = await _load_scheduler_config()
+
     rows = await execute_query(
         "SELECT id, ticker, entry_date, entry_price, quantity, "
         "highest_price, is_break_even, holding_days "
         "FROM active_positions"
     )
+
+    # --- New entry check (breadth guard for manual sync) ---
+    global _BREADTH_CACHE
+    try:
+        br_rows = await execute_query(
+            "SELECT breadth_pct FROM market_breadth ORDER BY calculated_at DESC FETCH FIRST 1 ROW ONLY"
+        )
+        if br_rows and br_rows[0][0] is not None:
+            _BREADTH_CACHE["pct"] = float(br_rows[0][0])
+            _BREADTH_CACHE["at"] = str(datetime.now())
+    except Exception:
+        pass
+
     if not rows:
-        print("[SCHEDULER] No active positions")
+        print(f"[SCHEDULER] No active positions (breadth: {_BREADTH_CACHE['pct']:.1%})")
         return
 
     for row in rows:
         pos_id = row[0]
         ticker = row[1]
-        state = _to_state(row)
+        state = _to_state(row, bmc)
 
         price = await kis_client.get_current_price(ticker)
         if price is None:
@@ -82,7 +140,7 @@ async def run_trading_loop() -> None:
             else:
                 print(f"[SCHEDULER] {ticker}: sell order failed")
 
-    print("[SCHEDULER] Cycle done")
+    print(f"[SCHEDULER] Cycle done (breadth: {_BREADTH_CACHE['pct']:.1%})")
 
 
 async def scheduler_loop() -> None:
@@ -90,13 +148,15 @@ async def scheduler_loop() -> None:
     cycles_since_daily = 0
 
     while True:
+        interval, _ = await _load_scheduler_config()
+
         try:
             await run_trading_loop()
         except Exception as e:
             print(f"[SCHEDULER] Trading loop error: {e}")
 
         cycles_since_daily += 1
-        if cycles_since_daily >= DAILY_UPDATE_INTERVAL // SCHEDULER_INTERVAL:
+        if cycles_since_daily >= DAILY_UPDATE_INTERVAL // interval:
             cycles_since_daily = 0
             try:
                 today = date.today()
@@ -110,4 +170,4 @@ async def scheduler_loop() -> None:
             except Exception as e:
                 print(f"[SCHEDULER] Daily update error: {e}")
 
-        await asyncio.sleep(SCHEDULER_INTERVAL)
+        await asyncio.sleep(interval)

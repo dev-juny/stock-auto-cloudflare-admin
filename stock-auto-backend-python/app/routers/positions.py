@@ -46,6 +46,27 @@ async def sync_position(req: PositionSyncRequest) -> PositionResponse:
             detail=f"Max concurrent positions ({settings.max_concurrent_positions}) reached",
         )
 
+    # Breadth guard: reject new entry if breadth below threshold
+    try:
+        br = await execute_query(
+            "SELECT breadth_pct FROM market_breadth ORDER BY calculated_at DESC FETCH FIRST 1 ROW ONLY"
+        )
+        if br and br[0][0] is not None:
+            breadth = float(br[0][0])
+            th = await execute_query(
+                "SELECT breadth_threshold FROM scheduler_config ORDER BY id DESC FETCH FIRST 1 ROW ONLY"
+            )
+            threshold = float(th[0][0]) if th and th[0][0] else 0.3
+            if breadth < threshold:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Market breadth ({breadth:.1%}) below threshold ({threshold:.1%}), new entry held",
+                )
+    except HTTPException:
+        raise
+    except Exception:
+        pass
+
     # Upsert (insert or update)
     await execute_non_query(
         "MERGE INTO active_positions t "

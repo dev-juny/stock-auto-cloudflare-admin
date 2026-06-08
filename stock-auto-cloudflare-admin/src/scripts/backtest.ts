@@ -748,6 +748,123 @@ function addPosition() {
     .catch(function (e) { showAlert('등록 실패: ' + e.message) })
 }
 
+// ── Strategy config: breadth, saved configs, scheduler ──
+function loadStrategyConfig() {
+  fetch('/api/backtest/breadth')
+    .then(function (r) { return r.json() })
+    .then(function (d) {
+      var el = document.getElementById('breadthDisplay')
+      if (!el) return
+      if (d.breadth_pct !== undefined && d.total_stocks > 0) {
+        var pct = (d.breadth_pct * 100).toFixed(1)
+        var clr = d.breadth_pct >= 0.5 ? '#3fb950' : d.breadth_pct >= 0.3 ? '#d29922' : '#f85149'
+        el.textContent = pct + '%'
+        el.style.color = clr
+        document.getElementById('breadthDetail').textContent = d.above_ma + '/' + d.total_stocks + ' 종목이 20일선 위'
+      } else {
+        el.textContent = '--'
+        document.getElementById('breadthDetail').textContent = '계산 필요'
+      }
+    })
+    .catch(function () {})
+
+  fetch('/api/backtest/configs')
+    .then(function (r) { return r.json() })
+    .then(function (list) {
+      var el = document.getElementById('savedConfigsList')
+      if (!el) return
+      if (!list || list.length === 0) {
+        el.innerHTML = '<span style="color:#484f58">저장된 설정이 없습니다.</span>'
+        return
+      }
+      var active = list.find(function (c) { return c.is_active })
+      if (active) {
+        var p = tryParseJson(active.params)
+        document.getElementById('activeConfigName').textContent = active.name
+        var detail = ''
+        if (p) detail = 'TP:' + (p.fixedTakeProfitPct * 100).toFixed(0) + '% / TS:' + (p.trailingStopPct * 100).toFixed(0) + '% / 정체:' + p.stallExitDays + '일'
+        document.getElementById('activeConfigDetail').textContent = detail
+      }
+      var html = list.slice(0, 10).map(function (c) {
+        var btn = c.is_active
+          ? '<span style="color:#3fb950;font-weight:600">✓ 적용 중</span>'
+          : '<button class="btn" onclick="activateConfig(' + c.id + ')" style="font-size:11px;padding:2px 8px">적용</button>'
+        return '<div style="display:flex;align-items:center;gap:8px;padding:3px 0;border-bottom:1px solid #21262d">' +
+          '<span style="color:#c9d1d9;flex:1">' + c.name + '</span>' +
+          btn +
+          '</div>'
+      }).join('')
+      el.innerHTML = html
+    })
+    .catch(function () {})
+
+  fetch('/api/backtest/scheduler-config')
+    .then(function (r) { return r.json() })
+    .then(function (d) {
+      var intEl = document.getElementById('schedulerInterval')
+      var thEl = document.getElementById('breadthThreshold')
+      if (intEl) intEl.value = d.interval_seconds || 60
+      if (thEl) thEl.value = d.breadth_threshold || 0.3
+    })
+    .catch(function () {})
+}
+
+function tryParseJson(s) {
+  try { return JSON.parse(s) } catch (e) { return null }
+}
+
+function activateConfig(id) {
+  fetch('/api/backtest/configs/' + id + '/activate', { method: 'POST' })
+    .then(function (r) { return r.json() })
+    .then(function () {
+      showAlert('전략이 적용되었습니다.')
+      loadStrategyConfig()
+    })
+    .catch(function (e) { showAlert('적용 실패: ' + e.message) })
+}
+
+function updateSchedulerConfig() {
+  var interval = parseInt(document.getElementById('schedulerInterval').value) || 60
+  var threshold = parseFloat(document.getElementById('breadthThreshold').value) || 0.3
+  fetch('/api/backtest/scheduler-config', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ interval_seconds: interval, breadth_threshold: threshold }),
+  })
+    .then(function (r) { return r.json() })
+    .then(function () {
+      showAlert('실행 주기와 BREADTH 하한이 업데이트되었습니다.')
+    })
+    .catch(function (e) { showAlert('업데이트 실패: ' + e.message) })
+}
+
+// ── Trade logs ──
+function loadTradeLogs() {
+  fetch('/api/backtest/trades?limit=50')
+    .then(function (r) { return r.json() })
+    .then(function (list) {
+      var el = document.getElementById('tradeLogBody')
+      if (!el) return
+      if (!list || list.length === 0) {
+        el.innerHTML = '<tr><td colspan="6" style="color:#8b949e;text-align:center">거래 내역이 없습니다.</td></tr>'
+        return
+      }
+      var html = list.map(function (t) {
+        var actCls = t.action === 'SELL' ? 'scan-negative' : 'scan-positive'
+        return '<tr>' +
+          '<td>' + (t.traded_at || '') + '</td>' +
+          '<td>' + t.ticker + '</td>' +
+          '<td class="' + actCls + '">' + t.action + '</td>' +
+          '<td>' + (t.price ? t.price.toLocaleString() : '') + '</td>' +
+          '<td>' + (t.quantity || '') + '</td>' +
+          '<td>' + (t.reason || '') + '</td>' +
+          '</tr>'
+      }).join('')
+      el.innerHTML = html
+    })
+    .catch(function () {})
+}
+
 // ── Event delegation for tabs and buttons ──
 document.addEventListener('click', function (e) {
   var tab = e.target.closest('.detail-tab')
@@ -770,5 +887,8 @@ document.addEventListener('click', function (e) {
 document.addEventListener('DOMContentLoaded', function () {
   loadParams()
   initDates()
+  loadActivePositions()
+  loadStrategyConfig()
+  loadTradeLogs()
 })
 `;

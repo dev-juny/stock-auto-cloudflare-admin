@@ -146,3 +146,21 @@ class TickerBacktestRequest(BaseModel):
     end_date: Optional[str] = None
     config: BacktestConfig = Field(default_factory=BacktestConfig)
     base_amt: float = 1000000
+
+class SavedConfig(BaseModel):
+    id: int = 0
+    name: str = ""
+    params: str = ""
+    result_summary: str = ""
+    is_active: bool = False
+    created_at: str = ""
+
+class BreadthSnapshot(BaseModel):
+    breadth_pct: float = 0
+    total_stocks: int = 0
+    above_ma: int = 0
+    calculated_at: str = ""
+
+class SchedulerConfig(BaseModel):
+    interval_seconds: int = 60
+    breadth_threshold: float = 0.3

@@ -89,6 +89,33 @@ async def _ensure_tables() -> None:
         )
         """,
         """
+        CREATE TABLE IF NOT EXISTS market_breadth (
+            id NUMBER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+            breadth_pct NUMBER(5,2),
+            total_stocks NUMBER(6),
+            above_ma NUMBER(6),
+            calculated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+        """,
+        """
+        CREATE TABLE IF NOT EXISTS scheduler_config (
+            id NUMBER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+            interval_seconds NUMBER(5) DEFAULT 60,
+            breadth_threshold NUMBER(5,2) DEFAULT 0.30,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+        """,
+        """
+        CREATE TABLE IF NOT EXISTS saved_configs (
+            id NUMBER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+            name VARCHAR2(200),
+            params CLOB,
+            result_summary CLOB,
+            is_active CHAR(1) DEFAULT 'N',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+        """,
+        """
         CREATE TABLE IF NOT EXISTS stock_daily_prices (
             id NUMBER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
             ticker VARCHAR2(6) NOT NULL,

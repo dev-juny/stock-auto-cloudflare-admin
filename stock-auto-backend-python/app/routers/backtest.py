@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import sys
 import uuid
 from datetime import datetime
@@ -9,7 +10,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "stock-auto-backtest" / "src"))
 
 from fastapi import APIRouter, HTTPException
-from app.database import execute_query, get_pool
+from app.database import execute_non_query, execute_query, get_pool
 from app.models import (
     BacktestRequest,
     BacktestResponse,
@@ -568,9 +569,179 @@ async def _run_scan(scan_id: str, req: TickerBacktestRequest) -> None:
         portfolio = await _build_portfolio_timeline(state["results"], candle_map, bmc, b_amt or 1_000_000, m_pos or 9999)
         state["portfolio"] = portfolio
 
+        # Save config to saved_configs
+        try:
+            params_json = json.dumps(req.config.model_dump())
+            result_summary = json.dumps({
+                "completed": state["completed"],
+                "total": state["total"],
+                "start_date": state.get("start_date", req.start_date),
+                "end_date": state.get("end_date", req.end_date),
+                "base_amt": req.base_amt,
+            })
+            await execute_non_query(
+                "INSERT INTO saved_configs (name, params, result_summary) "
+                "VALUES (:1, :2, :3)",
+                [f"Scan {req.start_date}~{req.end_date}", params_json, result_summary],
+            )
+        except Exception as e:
+            print(f"[BACKTEST] Save config error: {e}")
+
         state["status"] = "completed"
         state["message"] = f"Scan completed. {state['completed']}/{state['total']} stocks processed."
 
     except Exception as e:
         state["status"] = "failed"
         state["message"] = f"Error: {e}"
+
+
+# ── Saved configs ──
+@router.get("/configs")
+async def list_configs() -> list[dict]:
+    rows = await execute_query(
+        "SELECT id, name, params, result_summary, is_active, "
+        "TO_CHAR(created_at, 'YYYY-MM-DD HH24:MI:SS') FROM saved_configs "
+        "ORDER BY created_at DESC"
+    )
+    result = []
+    for r in rows:
+        result.append({
+            "id": r[0],
+            "name": r[1] or "",
+            "params": r[2] or "",
+            "result_summary": r[3] or "",
+            "is_active": r[4] == "Y" if r[4] else False,
+            "created_at": r[5] or "",
+        })
+    return result
+
+
+@router.post("/configs/{config_id}/activate")
+async def activate_config(config_id: int) -> dict:
+    await execute_non_query("UPDATE saved_configs SET is_active = 'N'")
+    await execute_non_query(
+        "UPDATE saved_configs SET is_active = 'Y' WHERE id = :1", [config_id]
+    )
+    return {"status": "activated", "id": config_id}
+
+
+# ── Breadth ──
+@router.get("/breadth")
+async def get_breadth() -> dict:
+    row = await execute_query(
+        "SELECT breadth_pct, total_stocks, above_ma, "
+        "TO_CHAR(calculated_at, 'YYYY-MM-DD HH24:MI:SS') "
+        "FROM market_breadth ORDER BY calculated_at DESC FETCH FIRST 1 ROW ONLY"
+    )
+    if row:
+        return {
+            "breadth_pct": float(row[0][0]) if row[0][0] else 0,
+            "total_stocks": int(row[0][1]) if row[0][1] else 0,
+            "above_ma": int(row[0][2]) if row[0][2] else 0,
+            "calculated_at": row[0][3] or "",
+        }
+    return {"breadth_pct": 0, "total_stocks": 0, "above_ma": 0, "calculated_at": ""}
+
+
+@router.post("/breadth/refresh")
+async def refresh_breadth() -> dict:
+    """Calculate market breadth: % of stocks above 20-day MA."""
+    try:
+        # Get latest trade date
+        date_row = await execute_query(
+            "SELECT MAX(trade_date) FROM stock_daily_prices"
+        )
+        if not date_row or not date_row[0][0]:
+            return {"error": "No price data"}
+        latest = date_row[0][0]
+
+        # For breadth, check all stocks with data on latest date
+        # Close price > MA(20) using self-join with 20 prior days
+        sql = """
+        WITH latest_prices AS (
+            SELECT ticker, close_price, trade_date,
+                AVG(close_price) OVER (
+                    PARTITION BY ticker ORDER BY trade_date
+                    ROWS BETWEEN 19 PRECEDING AND CURRENT ROW
+                ) AS ma20
+            FROM stock_daily_prices
+            WHERE trade_date <= :1
+        ),
+        ranked AS (
+            SELECT ticker, close_price, ma20,
+                ROW_NUMBER() OVER (PARTITION BY ticker ORDER BY trade_date DESC) AS rn
+            FROM latest_prices
+        )
+        SELECT
+            COUNT(*) AS total,
+            SUM(CASE WHEN close_price > ma20 THEN 1 ELSE 0 END) AS above_ma
+        FROM ranked WHERE rn = 1 AND close_price IS NOT NULL AND ma20 IS NOT NULL
+        """
+        rows = await execute_query(sql, [latest])
+        total = int(rows[0][0]) if rows and rows[0][0] else 0
+        above = int(rows[0][1]) if rows and rows[0][1] else 0
+        pct = round(above / total, 4) if total > 0 else 0
+
+        await execute_non_query(
+            "INSERT INTO market_breadth (breadth_pct, total_stocks, above_ma) "
+            "VALUES (:1, :2, :3)",
+            [pct, total, above],
+        )
+
+        return {
+            "breadth_pct": pct,
+            "total_stocks": total,
+            "above_ma": above,
+            "calculated_at": str(datetime.now().strftime("%Y-%m-%d %H:%M:%S")),
+        }
+    except Exception as e:
+        return {"error": str(e)}
+
+
+# ── Trade logs ──
+@router.get("/trades")
+async def list_trade_logs(limit: int = 50) -> list[dict]:
+    rows = await execute_query(
+        "SELECT id, ticker, action, price, quantity, reason, "
+        "TO_CHAR(traded_at, 'YYYY-MM-DD HH24:MI:SS') "
+        "FROM trade_logs ORDER BY traded_at DESC FETCH FIRST :1 ROWS ONLY",
+        [limit],
+    )
+    result = []
+    for r in rows:
+        result.append({
+            "id": r[0],
+            "ticker": r[1],
+            "action": r[2],
+            "price": float(r[3]) if r[3] else None,
+            "quantity": int(r[4]) if r[4] else None,
+            "reason": r[5],
+            "traded_at": r[6] or "",
+        })
+    return result
+
+
+# ── Scheduler config ──
+@router.get("/scheduler-config")
+async def get_scheduler_config() -> dict:
+    row = await execute_query(
+        "SELECT interval_seconds, breadth_threshold "
+        "FROM scheduler_config ORDER BY id DESC FETCH FIRST 1 ROW ONLY"
+    )
+    if row:
+        return {
+            "interval_seconds": int(row[0][0]) if row[0][0] else 60,
+            "breadth_threshold": float(row[0][1]) if row[0][1] else 0.3,
+        }
+    return {"interval_seconds": 60, "breadth_threshold": 0.3}
+
+
+@router.post("/scheduler-config")
+async def update_scheduler_config(data: dict) -> dict:
+    interval = int(data.get("interval_seconds", 60))
+    threshold = float(data.get("breadth_threshold", 0.3))
+    await execute_non_query(
+        "INSERT INTO scheduler_config (interval_seconds, breadth_threshold) VALUES (:1, :2)",
+        [interval, threshold],
+    )
+    return {"status": "updated", "interval_seconds": interval, "breadth_threshold": threshold}
