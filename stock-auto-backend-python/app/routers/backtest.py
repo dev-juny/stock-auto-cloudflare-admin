@@ -371,6 +371,113 @@ async def _process_one_stock(
     return result
 
 
+async def _build_portfolio_timeline(results: list[dict], candle_map: dict[str, list[dict]], bmc: BMC, base_amt: float, max_pos: int) -> list[dict]:
+    if not results or max_pos < 1:
+        return []
+    pos_size = base_amt / max_pos
+
+    # For each result, simulate day-by-day to capture trailing/BE status
+    all_trades: dict[str, list[dict]] = {}
+    for r in results:
+        ticker = r["ticker"]
+        candles = candle_map.get(ticker)
+        if not candles:
+            raw = await fetch_stock_data(ticker)
+            if not raw:
+                continue
+            candles = raw
+
+        entry_idx = next((i for i, c in enumerate(candles) if c["time"] >= r["entry_date"]), 0)
+        if entry_idx >= len(candles):
+            continue
+
+        entry = candles[entry_idx]
+        state = PositionState(
+            ticker=ticker, entry_date=entry["time"], entry_price=entry["close"],
+            quantity=1, highest_price_since_entry=entry["close"], config=bmc,
+        )
+
+        trades = [{
+            "date": entry["time"], "signal": "BUY", "price": entry["close"], "reason": None,
+            "is_trailing": False, "is_be": False,
+        }]
+        for c in candles[entry_idx + 1:]:
+            price = c["close"]
+            sig, reason = state.update_and_check_signal(price)
+            peak = (state.highest_price_since_entry - state.entry_price) / state.entry_price
+            trades.append({
+                "date": c["time"], "signal": sig, "reason": reason, "price": price,
+                "is_trailing": (peak >= bmc.trailing_activation_pct and sig != "SELL"),
+                "is_be": (state.is_break_even_activated and sig != "SELL"),
+            })
+            if sig == "SELL":
+                break
+        all_trades[ticker] = trades
+
+    all_dates = sorted({d["date"] for tl in all_trades.values() for d in tl})
+    if not all_dates:
+        return []
+
+    active: dict[str, dict] = {}
+    cash = base_amt
+    portfolio = []
+
+    for date in all_dates:
+        for ticker, trades in all_trades.items():
+            td = next((d for d in trades if d["date"] == date), None)
+            if not td:
+                continue
+
+            if td["signal"] == "BUY" and ticker not in active and len(active) < max_pos:
+                active[ticker] = dict(td)
+                active[ticker]["entry_price"] = td["price"]
+                cash -= pos_size
+
+        for ticker in list(active.keys()):
+            td = next((d for d in all_trades.get(ticker, []) if d["date"] == date), None)
+            if td:
+                active[ticker].update(td)
+                active[ticker]["current_price"] = td["price"]
+
+        for ticker in list(active.keys()):
+            if active[ticker]["signal"] == "SELL":
+                info = active[ticker]
+                pnl = (info["current_price"] - info["entry_price"]) / info["entry_price"]
+                cash += pos_size * (1 + pnl)
+                del active[ticker]
+
+        holdings = []
+        for ticker, info in sorted(active.items()):
+            if info["signal"] == "BUY":
+                label = "매수"
+            elif info["signal"] == "SELL":
+                label = "매도"
+            elif info["is_trailing"]:
+                label = "트레일링"
+            elif info["is_be"]:
+                label = "BE"
+            else:
+                label = "홀드"
+            pnl = (info["current_price"] - info["entry_price"]) / info["entry_price"] if info["entry_price"] else 0
+            holdings.append({
+                "ticker": ticker, "entry_price": info["entry_price"],
+                "current_price": info["current_price"], "status": label,
+                "reason": info.get("reason"), "pnl_pct": round(pnl, 6),
+                "profit_amt": round(pnl * pos_size, 2),
+            })
+
+        equity = sum(h["pnl_pct"] * pos_size + pos_size for h in holdings)
+        tv = cash + equity
+        portfolio.append({
+            "date": date, "holdings": holdings, "cash": round(cash, 2),
+            "total_value": round(tv, 2), "positions_count": len(holdings),
+            "pnl_pct": round((tv - base_amt) / base_amt, 6),
+            "pnl_amt": round(tv - base_amt, 2),
+        })
+
+    return portfolio
+
+
 async def _run_scan(scan_id: str, req: TickerBacktestRequest) -> None:
     state = _scan_states[scan_id]
     bmc = _to_bmc(req.config)
@@ -449,6 +556,12 @@ async def _run_scan(scan_id: str, req: TickerBacktestRequest) -> None:
             state["results"].sort(key=lambda r: abs(r.get("pnl", 0)), reverse=True)
             state["results"] = state["results"][:limit]
             state["completed"] = len(state["results"])
+
+        # Portfolio simulation
+        b_amt = req.base_amt
+        m_pos = req.config.maxConcurrentPositions
+        portfolio = await _build_portfolio_timeline(state["results"], candle_map, bmc, b_amt or 1_000_000, m_pos or 9999)
+        state["portfolio"] = portfolio
 
         state["status"] = "completed"
         state["message"] = f"Scan completed. {state['completed']}/{state['total']} stocks processed."

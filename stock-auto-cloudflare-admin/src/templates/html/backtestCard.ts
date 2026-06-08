@@ -71,35 +71,44 @@ export const backtestCard = `
     <div class="stat-item"><span class="stat-label">최고수익</span><span class="stat-val" id="statsBestTrade">-</span></div>
     <div class="stat-item"><span class="stat-label">최대손실</span><span class="stat-val" id="statsWorstTrade">-</span></div>
   </div>
-  <div style="overflow-x:auto">
-    <table class="scan-results-table" id="scanResultsTable">
-      <thead>
-        <tr>
-          <th>종목코드</th>
-          <th>종목명</th>
-          <th>구분</th>
-          <th>업종</th>
-          <th>진입일</th>
-          <th>진입가</th>
-          <th>청산일</th>
-          <th>청산가</th>
-          <th>사유</th>
-          <th>수익률</th>
-          <th>수익금</th>
-          <th>보유일</th>
-          <th>상세</th>
-        </tr>
-      </thead>
-      <tbody id="scanResultsBody"></tbody>
-    </table>
+  <div class="results-tab-bar">
+    <button class="results-tab active" data-view="signals">신호</button>
+    <button class="results-tab" data-view="portfolio">포트폴리오</button>
   </div>
-  <div class="pagination-bar hidden" id="paginationBar">
-    <div class="pagination-controls">
-      <button class="btn-pagination" id="btnPrevPage" onclick="changePage(-1)">이전</button>
-      <span id="pageIndicator">1</span>
-      <button class="btn-pagination" id="btnNextPage" onclick="changePage(1)">다음</button>
+  <div class="results-view active" id="resultsViewSignals">
+    <div style="overflow-x:auto">
+      <table class="scan-results-table" id="scanResultsTable">
+        <thead>
+          <tr>
+            <th>종목코드</th>
+            <th>종목명</th>
+            <th>구분</th>
+            <th>업종</th>
+            <th>진입일</th>
+            <th>진입가</th>
+            <th>청산일</th>
+            <th>청산가</th>
+            <th>사유</th>
+            <th>수익률</th>
+            <th>수익금</th>
+            <th>보유일</th>
+            <th>상세</th>
+          </tr>
+        </thead>
+        <tbody id="scanResultsBody"></tbody>
+      </table>
     </div>
-    <div id="paginationInfo" class="pagination-info"></div>
+    <div class="pagination-bar hidden" id="paginationBar">
+      <div class="pagination-controls">
+        <button class="btn-pagination" id="btnPrevPage" onclick="changePage(-1)">이전</button>
+        <span id="pageIndicator">1</span>
+        <button class="btn-pagination" id="btnNextPage" onclick="changePage(1)">다음</button>
+      </div>
+      <div id="paginationInfo" class="pagination-info"></div>
+    </div>
+  </div>
+  <div class="results-view" id="resultsViewPortfolio">
+    <div id="portfolioContent" style="overflow-x:auto"></div>
   </div>
 </div>
 

@@ -108,6 +108,24 @@ class ScanResult(BaseModel):
     holding_days: int
 
 
+class PortfolioHolding(BaseModel):
+    ticker: str
+    entry_price: float
+    current_price: float
+    status: str
+    reason: Optional[str] = None
+    pnl_pct: float
+    profit_amt: float
+
+class PortfolioSnapshot(BaseModel):
+    date: str
+    holdings: list[PortfolioHolding] = []
+    cash: float
+    total_value: float
+    positions_count: int
+    pnl_pct: float
+    pnl_amt: float
+
 class ScanStatus(BaseModel):
     scan_id: str
     status: str
@@ -116,6 +134,7 @@ class ScanStatus(BaseModel):
     completed: int
     results: list[ScanResult] = []
     message: str = ""
+    portfolio: list[PortfolioSnapshot] | None = None
 
 
 class TickerBacktestRequest(BaseModel):
@@ -124,3 +143,4 @@ class TickerBacktestRequest(BaseModel):
     start_date: Optional[str] = None
     end_date: Optional[str] = None
     config: BacktestConfig = Field(default_factory=BacktestConfig)
+    base_amt: float = 1000000

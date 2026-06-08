@@ -150,6 +150,7 @@ function runBacktestRange() {
   var mv = parseInt(document.getElementById('bt_minVol').value)
   var mvol = parseFloat(document.getElementById('bt_maxVol').value)
   var rl = parseInt(document.getElementById('bt_rankLimit').value)
+  var mp = parseInt(document.getElementById('bt_maxPos').value) || 10
   var ba = parseInt(document.getElementById('bt_baseAmt').value) || 1000000
 
   if (!tp || tp <= 0) { showAlert('익절률은 0보다 커야 합니다.'); return }
@@ -171,6 +172,7 @@ function runBacktestRange() {
     minVolume: mv,
     maxVolatility: mvol,
     rankingCandidateLimit: rl,
+    maxConcurrentPositions: mp,
   }
 
   window._baseAmt = ba
@@ -188,7 +190,7 @@ function runBacktestRange() {
     '  익절률: ' + pct(tp) + '%  |  본절: ' + pct(be) + '%\\n' +
     '  트레일링: ' + pct(ta) + '% / ' + pct(ts) + '%  |  정체청산: ' + sd + '일\\n' +
     '  최소거래량: ' + mv.toLocaleString() + '  |  최대변동성: ' + pct(mvol) + '%\\n' +
-    '  후보제한: ' + rl + '개  |  기준금액: ' + ba.toLocaleString() + '원'
+    '  후보제한: ' + rl + '개  |  최대보유: ' + mp + '종목  |  기준금액: ' + ba.toLocaleString() + '원'
 
   showConfirm('백테스트를 실행하시겠습니까?\\n' + summary).then(function (ok) {
     if (!ok) return
@@ -208,6 +210,7 @@ function runBacktestRange() {
         config: config,
         start_date: startDate,
         end_date: endDate,
+        base_amt: window._baseAmt || 1000000,
       }),
     })
       .then(function (r) { return r.json() })
@@ -262,11 +265,13 @@ function renderScanResults(data) {
   results.sort(function (a, b) { return Math.abs(b.pnl) - Math.abs(a.pnl) })
 
   window._scanResults = results
+  window._scanPortfolio = data.portfolio || []
   window._baseAmt = window._baseAmt || 1000000
   _currentPage = 1
 
   renderStats(results)
   renderPage()
+  renderPortfolio()
 }
 
 function renderStats(results) {
@@ -368,6 +373,54 @@ function changePage(delta) {
   _currentPage = newPage
   renderPage()
   document.getElementById('scanResultsTable').scrollIntoView({ behavior: 'smooth', block: 'start' })
+}
+
+// ── Portfolio simulation view ──
+function renderPortfolio() {
+  var portfolio = window._scanPortfolio || []
+  var ba = window._baseAmt || 1000000
+  var container = document.getElementById('portfolioContent')
+  if (!container) return
+  if (!portfolio || portfolio.length === 0) {
+    container.innerHTML = '<div style="color:#8b949e;text-align:center;padding:2rem">포트폴리오 데이터가 없습니다.</div>'
+    return
+  }
+
+  var rows = portfolio.map(function (s) {
+    var pnlCls = s.pnl_pct >= 0 ? 'scan-positive' : 'scan-negative'
+    var holdingsHtml = (s.holdings || []).map(function (h) {
+      var cls = 'pos-hold'
+      if (h.status === '매수') cls = 'pos-buy'
+      else if (h.status === '매도') cls = 'pos-sell'
+      else if (h.status === '트레일링') cls = 'pos-trailing'
+      else if (h.status === 'BE') cls = 'pos-be'
+      return '<div class="portfolio-pos"><span class="' + cls + '">' + h.ticker + '(' + h.status + ')</span></div>'
+    }).join('')
+
+    return '<tr>' +
+      '<td>' + s.date + '</td>' +
+      '<td>' + (s.positions_count || 0) + '</td>' +
+      '<td>' + holdingsHtml + '</td>' +
+      '<td>' + s.cash.toLocaleString() + '</td>' +
+      '<td>' + s.total_value.toLocaleString() + '</td>' +
+      '<td class="' + pnlCls + '">' + (s.pnl_pct * 100).toFixed(2) + '%</td>' +
+      '<td class="' + pnlCls + '">' + s.pnl_amt.toLocaleString() + '</td>' +
+      '</tr>'
+  }).join('')
+
+  var last = portfolio[portfolio.length - 1]
+  container.innerHTML = [
+    '<div class="portfolio-summary">',
+      '<span class="ps-item">기준금액: <strong>' + ba.toLocaleString() + '원</strong></span>',
+      '<span class="ps-item">최종수익률: <strong style="color:' + (last.pnl_pct >= 0 ? '#3fb950' : '#f85149') + '">' + (last.pnl_pct * 100).toFixed(2) + '%</strong></span>',
+      '<span class="ps-item">최종수익금: <strong style="color:' + (last.pnl_amt >= 0 ? '#3fb950' : '#f85149') + '">' + last.pnl_amt.toLocaleString() + '원</strong></span>',
+      '<span class="ps-item">총거래일: <strong>' + portfolio.length + '일</strong></span>',
+    '</div>',
+    '<table class="portfolio-table">',
+      '<thead><tr><th>날짜</th><th>보유</th><th>보유종목</th><th>현금</th><th>총평가액</th><th>수익률</th><th>수익금</th></tr></thead>',
+      '<tbody>' + rows + '</tbody>',
+    '</table>',
+  ].join('')
 }
 
 // ── Backtest detail view (TradingView chart modal) ──
@@ -673,10 +726,17 @@ function addPosition() {
     .catch(function (e) { showAlert('등록 실패: ' + e.message) })
 }
 
-// ── Event delegation for detail buttons and tabs ──
+// ── Event delegation for tabs and buttons ──
 document.addEventListener('click', function (e) {
   var tab = e.target.closest('.detail-tab')
   if (tab && tab.dataset.tab) { switchDetailTab(tab.dataset.tab); return }
+  var rtab = e.target.closest('.results-tab')
+  if (rtab && rtab.dataset.view) {
+    document.querySelectorAll('.results-tab').forEach(function (b) { b.classList.toggle('active', b === rtab) })
+    document.querySelectorAll('.results-view').forEach(function (v) { v.classList.toggle('active', v.id === 'resultsView' + rtab.dataset.view.charAt(0).toUpperCase() + rtab.dataset.view.slice(1)) })
+    if (rtab.dataset.view === 'portfolio') { var pc = document.getElementById('portfolioContent'); if (pc && !pc.innerHTML.trim()) renderPortfolio() }
+    return
+  }
   var btn = e.target.closest('.btn-detail')
   if (btn && btn.dataset.idx !== undefined && window._scanResults) {
     var r = window._scanResults[parseInt(btn.dataset.idx)]

@@ -452,4 +452,66 @@ export const backtestCss = `
   border-radius: 6px;
   overflow: hidden;
 }
+
+/* results tabs (signals / portfolio) */
+.results-tab-bar {
+  display: flex;
+  gap: 0;
+  border-bottom: 1px solid #30363d;
+  margin: 0.75rem 0;
+}
+.results-tab {
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: #8b949e;
+  padding: 0.4rem 1rem;
+  cursor: pointer;
+  font-size: 13px;
+  transition: color 0.15s, border-color 0.15s;
+}
+.results-tab:hover { color: #c9d1d9 }
+.results-tab.active {
+  color: #58a6ff;
+  border-bottom-color: #58a6ff;
+}
+.results-view { display: none }
+.results-view.active { display: block }
+
+.portfolio-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.portfolio-table th, .portfolio-table td {
+  padding: 6px 8px;
+  text-align: center;
+  border-bottom: 1px solid #21262d;
+  white-space: nowrap;
+}
+.portfolio-table th {
+  color: #8b949e;
+  font-weight: 600;
+  position: sticky;
+  top: 0;
+  background: #0d1117;
+}
+.portfolio-pos { font-size: 12px; margin: 1px 0 }
+.portfolio-pos span { display: inline-block; margin-right: 6px }
+.portfolio-pos .pos-buy { color: #3fb950 }
+.portfolio-pos .pos-hold { color: #58a6ff }
+.portfolio-pos .pos-sell { color: #f85149 }
+.portfolio-pos .pos-trailing { color: #d29922 }
+.portfolio-pos .pos-be { color: #bc8cff }
+.portfolio-summary {
+  display: flex;
+  gap: 1rem;
+  padding: 0.75rem;
+  background: #0d1117;
+  border-radius: 6px;
+  margin-bottom: 1rem;
+  align-items: center;
+}
+.portfolio-summary .ps-item { font-size: 13px; color: #8b949e }
+.portfolio-summary .ps-item strong { color: #c9d1d9 }
 `;
