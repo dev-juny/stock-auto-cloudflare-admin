@@ -496,15 +496,18 @@ export const backtestCss = `
   top: 0;
   background: #0d1117;
 }
-.portfolio-pos { font-size: 12px; margin: 4px 0; padding: 4px 6px; background: #161b22; border-radius: 4px; line-height: 1.6 }
+.portfolio-pos { display: flex; flex-wrap: nowrap; align-items: center; gap: 4px; font-size: 12px; padding: 3px 6px; background: #161b22; border-radius: 4px; margin: 3px 0; white-space: nowrap }
+.portfolio-pos .pos-ticker { font-weight: 700 }
 .portfolio-pos .pos-name { color: #8b949e; font-size: 11px }
-.portfolio-pos .pos-details { font-size: 11px; color: #8b949e; margin-top: 2px }
-.portfolio-pos .pos-val { color: #c9d1d9; font-weight: 600 }
+.portfolio-pos .pos-sep { color: #484f58 }
+.portfolio-pos .pos-label { color: #8b949e }
+.portfolio-pos .pos-val { color: #c9d1d9; font-weight: 600; margin-left: 2px }
 .portfolio-pos .pos-buy { color: #3fb950 }
 .portfolio-pos .pos-hold { color: #58a6ff }
 .portfolio-pos .pos-sell { color: #f85149 }
 .portfolio-pos .pos-trailing { color: #d29922 }
 .portfolio-pos .pos-be { color: #bc8cff }
+.portfolio-table td { vertical-align: top }
 .portfolio-summary {
   display: flex;
   gap: 1rem;

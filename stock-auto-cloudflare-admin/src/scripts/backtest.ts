@@ -404,15 +404,18 @@ function renderPortfolio() {
       var profitCls = h.profit_amt >= 0 ? 'scan-positive' : 'scan-negative'
       var reasonStr = h.reason ? ' (' + h.reason + ')' : ''
       return '<div class="portfolio-pos">' +
-        '<div><span class="' + cls + '">' + h.ticker + '</span>' +
-        ' <span class="pos-name">' + (h.name || '') + '</span></div>' +
-        '<div class="pos-details">' +
-        '진입가 <span class="pos-val">' + h.entry_price.toLocaleString() + '</span>원' +
-        ' | ' + label + ' <span class="pos-val">' + price + '</span>원' +
-        ' | ' + (h.shares || 0) + '주' +
-        ' | <span class="' + profitCls + '">' + h.profit_amt.toLocaleString() + '원 (' + (h.pnl_pct * 100).toFixed(2) + '%)</span>' +
-        ' <span class="' + cls + '">' + h.status + reasonStr + '</span>' +
-        '</div>' +
+        '<span class="' + cls + ' pos-ticker">' + h.ticker + '</span>' +
+        '<span class="pos-name">' + (h.name || '') + '</span>' +
+        '<span class="pos-sep">|</span>' +
+        '<span class="pos-label">진입</span><span class="pos-val">' + h.entry_price.toLocaleString() + '</span>' +
+        '<span class="pos-sep">|</span>' +
+        '<span class="pos-label">' + label + '</span><span class="pos-val">' + price + '</span>' +
+        '<span class="pos-sep">|</span>' +
+        '<span class="pos-label">' + (h.shares || 0) + '주</span>' +
+        '<span class="pos-sep">|</span>' +
+        '<span class="' + profitCls + '">' + h.profit_amt.toLocaleString() + '원 (' + (h.pnl_pct * 100).toFixed(2) + '%)</span>' +
+        '<span class="pos-sep">|</span>' +
+        '<span class="' + cls + '">' + h.status + reasonStr + '</span>' +
         '</div>'
     }).join('')
 
