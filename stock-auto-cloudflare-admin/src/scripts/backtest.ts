@@ -394,7 +394,13 @@ function renderPortfolio() {
       else if (h.status === '매도') cls = 'pos-sell'
       else if (h.status === '트레일링') cls = 'pos-trailing'
       else if (h.status === 'BE') cls = 'pos-be'
-      return '<div class="portfolio-pos"><span class="' + cls + '">' + h.ticker + '(' + h.status + ')</span></div>'
+      var name = h.name || ''
+      return '<div class="portfolio-pos">' +
+        '<span class="' + cls + '">' + h.ticker + '</span>' +
+        ' <span style="color:#8b949e">' + name + '</span>' +
+        ' <span style="color:#484f58">|</span> 진입가 ' + h.entry_price.toLocaleString() +
+        ' <span class="' + cls + '">' + h.status + '</span>' +
+        '</div>'
     }).join('')
 
     return '<tr>' +

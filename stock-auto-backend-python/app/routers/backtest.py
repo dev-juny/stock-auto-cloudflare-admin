@@ -375,6 +375,7 @@ async def _build_portfolio_timeline(results: list[dict], candle_map: dict[str, l
     if not results or max_pos < 1:
         return []
     pos_size = base_amt / max_pos
+    names: dict[str, str] = {r["ticker"]: r.get("name", "") for r in results}
 
     # For each result, simulate day-by-day to capture trailing/BE status
     all_trades: dict[str, list[dict]] = {}
@@ -460,7 +461,8 @@ async def _build_portfolio_timeline(results: list[dict], candle_map: dict[str, l
                 label = "홀드"
             pnl = (info["current_price"] - info["entry_price"]) / info["entry_price"] if info["entry_price"] else 0
             holdings.append({
-                "ticker": ticker, "entry_price": info["entry_price"],
+                "ticker": ticker, "name": names.get(ticker, ""),
+                "entry_price": info["entry_price"],
                 "current_price": info["current_price"], "status": label,
                 "reason": info.get("reason"), "pnl_pct": round(pnl, 6),
                 "profit_amt": round(pnl * pos_size, 2),

@@ -110,6 +110,7 @@ class ScanResult(BaseModel):
 
 class PortfolioHolding(BaseModel):
     ticker: str
+    name: str = ""
     entry_price: float
     current_price: float
     status: str
