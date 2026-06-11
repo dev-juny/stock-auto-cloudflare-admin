@@ -8,7 +8,7 @@ from typing import Any, Callable, Optional
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "stock-auto-backtest" / "src"))
 
-from app.database import execute_non_query, execute_query, get_pool
+from app.database import _db_executor, execute_non_query, execute_query, get_pool
 from app.services.data_provider import fetch_stock_data, get_kospi_tickers
 
 
@@ -53,31 +53,35 @@ async def upsert_prices(ticker: str, candles: list[dict[str, Any]]) -> int:
         d = c["time"]
         if isinstance(d, str):
             d = datetime.strptime(str(d), "%Y-%m-%d").date()
-        rows.append([ticker, d, c["open"], c["high"], c["low"], c["close"], c["volume"]])
+        rows.append([ticker, d.isoformat(), c["open"], c["high"], c["low"], c["close"], c["volume"]])
 
-    conn = pool.acquire()
-    try:
-        cur = conn.cursor()
-        for row in rows:
-            try:
-                cur.execute(
-                    "INSERT INTO stock_daily_prices "
-                    "(ticker, trade_date, open_price, high_price, low_price, close_price, volume) "
-                    "VALUES (:1, :2, :3, :4, :5, :6, :7)",
-                    row,
-                )
-            except Exception:
-                conn.commit()
-                cur.execute(
-                    "UPDATE stock_daily_prices SET open_price = :3, high_price = :4, "
-                    "low_price = :5, close_price = :6, volume = :7 "
-                    "WHERE ticker = :1 AND trade_date = :2",
-                    row,
-                )
-        conn.commit()
-        return len(rows)
-    finally:
-        conn.close()
+    loop = asyncio.get_running_loop()
+    def _do_upsert():
+        conn = pool.acquire()
+        try:
+            cur = conn.cursor()
+            for row in rows:
+                try:
+                    cur.execute(
+                        "INSERT INTO stock_daily_prices "
+                        "(ticker, trade_date, open_price, high_price, low_price, close_price, volume) "
+                        "VALUES (:1, TO_DATE(:2, 'YYYY-MM-DD'), :3, :4, :5, :6, :7)",
+                        row,
+                    )
+                except Exception:
+                    conn.commit()
+                    cur.execute(
+                        "UPDATE stock_daily_prices SET open_price = :3, high_price = :4, "
+                        "low_price = :5, close_price = :6, volume = :7 "
+                        "WHERE ticker = :1 AND trade_date = TO_DATE(:2, 'YYYY-MM-DD')",
+                        row,
+                    )
+            conn.commit()
+            return len(rows)
+        finally:
+            conn.close()
+
+    return await loop.run_in_executor(_db_executor, _do_upsert)
 
 
 async def _load_one_stock(
@@ -111,7 +115,7 @@ async def load_all_historical(
         "errors": [],
     }
 
-    sem = asyncio.Semaphore(10)
+    sem = asyncio.Semaphore(5)
     lock = asyncio.Lock()
 
     async def process(row):

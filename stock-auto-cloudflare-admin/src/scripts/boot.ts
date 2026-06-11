@@ -19,14 +19,37 @@ function navigateTo(page) {
   })
   closeSidebar()
   if (page === 'dashboard') refreshAll()
+  history.pushState({ page: page }, '', window.location.pathname + '#' + page)
 }
+
+window.addEventListener('popstate', function (e) {
+  var page = (e.state && e.state.page) || location.hash.replace('#', '') || 'dashboard'
+  var el = document.querySelector('.sidebar-item[onclick*="' + page + '"]')
+  if (el) navigateTo(page)
+})
+
+// Override initial page load to set state
+document.addEventListener('DOMContentLoaded', function () {
+  var page = location.hash.replace('#', '') || 'dashboard'
+  history.replaceState({ page: page }, '', window.location.pathname + '#' + page)
+})
 
 document.getElementById('loadingScreen').classList.remove('hidden')
 document.getElementById('loginScreen').classList.add('hidden')
 checkSession()
-setInterval(refreshAll, 30000)
 
 document.getElementById('password').addEventListener('keypress', function (e) {
   if (e.key === 'Enter') login()
+})
+
+window.addEventListener('unhandledrejection', function (e) {
+  if (e.reason && e.reason.message && e.reason.message.indexOf('message channel closed') !== -1) {
+    e.preventDefault()
+  }
+})
+window.addEventListener('error', function (e) {
+  if (e.message && e.message.indexOf('message channel closed') !== -1) {
+    e.preventDefault()
+  }
 })
 `;

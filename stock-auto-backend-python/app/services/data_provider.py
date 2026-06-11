@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ast
+import asyncio
 import csv
 import json
 import os
@@ -40,6 +41,7 @@ async def _fetch_tickers_by_market(sosok: int, market_label: str) -> list[dict[s
     for page in range(1, 50):
         url = f"https://finance.naver.com/sise/sise_market_sum.naver?sosok={sosok}&page={page}"
         resp = await _http.get(url)
+        await asyncio.sleep(0)  # yield after HTTP I/O
         matches = re.findall(r'code=(\d{6})[^>]*class="tltle">([^<]+)</a>', resp.text)
         if not matches:
             break
@@ -53,9 +55,10 @@ async def get_kospi_tickers() -> list[dict[str, str]]:
     try:
         resp = await _http.get(KRX_URL)
         content = resp.content.decode("euc-kr")
+        await asyncio.sleep(0)  # yield after decode
         reader = csv.DictReader(StringIO(content))
         if reader.fieldnames and "종목코드" in reader.fieldnames:
-            return [
+            result = [
                 {
                     "ticker": row["종목코드"].strip().zfill(6),
                     "name": row["종목명"].strip(),
@@ -64,6 +67,8 @@ async def get_kospi_tickers() -> list[dict[str, str]]:
                 }
                 for row in reader
             ]
+            await asyncio.sleep(0)  # yield after list comprehension
+            return result
     except Exception:
         pass
     return await _fetch_tickers_by_market(0, "KOSPI")
@@ -84,6 +89,7 @@ async def fetch_stock_data(ticker: str) -> list[dict[str, Any]]:
         if age < CACHE_MAX_AGE:
             try:
                 data = json.loads(cache_path.read_text(encoding="utf-8"))
+                await asyncio.sleep(0)  # yield after CPU-bound json.loads + I/O read
             except Exception:
                 data = None
 
@@ -91,14 +97,52 @@ async def fetch_stock_data(ticker: str) -> list[dict[str, Any]]:
         raw = await _download_naver(ticker)
         if raw:
             cache_path.write_text(json.dumps(raw, ensure_ascii=False), encoding="utf-8")
+            await asyncio.sleep(0)  # yield after CPU-bound json.dumps + I/O write
             data = raw
         elif cache_path.exists():
             try:
                 data = json.loads(cache_path.read_text(encoding="utf-8"))
+                await asyncio.sleep(0)  # yield after CPU-bound json.loads + I/O read
             except Exception:
                 data = None
 
     return data or []
+
+
+async def _parse_naver_lines(body: str) -> list[dict[str, Any]] | None:
+    """Parse Naver API response line by line, yielding every 100 lines."""
+    if not body.startswith("[["):
+        return None
+    lines = body.strip("[]\n").split("],\n[")
+    result = []
+    for idx, line in enumerate(lines):
+        line = line.strip("[]")
+        if not line:
+            continue
+        parts = line.split(",")
+        if len(parts) < 6:
+            continue
+        try:
+            date_str = parts[0].strip().strip('"')
+            if len(date_str) == 8:
+                dt = datetime.strptime(date_str, "%Y%m%d")
+                time_str = dt.strftime("%Y-%m-%d")
+            else:
+                time_str = date_str
+            result.append({
+                "time": time_str,
+                "open": float(parts[1].strip()),
+                "high": float(parts[2].strip()),
+                "low": float(parts[3].strip()),
+                "close": float(parts[4].strip()),
+                "volume": int(float(parts[5].strip())),
+            })
+        except (ValueError, TypeError, IndexError):
+            continue
+        if idx > 0 and idx % 100 == 0:
+            await asyncio.sleep(0)
+    result.sort(key=lambda x: str(x["time"]))
+    return result if result else None
 
 
 async def _download_naver(ticker: str) -> list[dict[str, Any]] | None:
@@ -115,31 +159,6 @@ async def _download_naver(ticker: str) -> list[dict[str, Any]] | None:
         if resp.status_code != 200:
             return None
         body = resp.text.strip()
-        if not body.startswith("[["):
-            return None
-        rows = ast.literal_eval(body)
-        result = []
-        for r in rows[1:]:
-            if not isinstance(r, list) or len(r) < 6:
-                continue
-            try:
-                date_str = str(r[0])
-                if len(date_str) == 8:
-                    dt = datetime.strptime(date_str, "%Y%m%d")
-                    time_str = dt.strftime("%Y-%m-%d")
-                else:
-                    time_str = date_str
-                result.append({
-                    "time": time_str,
-                    "open": float(r[1]),
-                    "high": float(r[2]),
-                    "low": float(r[3]),
-                    "close": float(r[4]),
-                    "volume": int(r[5]),
-                })
-            except (ValueError, IndexError):
-                continue
-        result.sort(key=lambda x: str(x["time"]))
-        return result
+        return await _parse_naver_lines(body)
     except Exception:
         return None

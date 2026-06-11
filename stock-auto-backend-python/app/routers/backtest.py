@@ -1,13 +1,19 @@
 from __future__ import annotations
 
 import asyncio
+import gc
 import json
+import logging
 import sys
 import uuid
-from datetime import datetime
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "stock-auto-backtest" / "src"))
+
+from typing import Any
+
+from pydantic import BaseModel
 
 from fastapi import APIRouter, HTTPException
 from app.database import execute_non_query, execute_query, get_pool
@@ -23,12 +29,14 @@ from app.models import (
 )
 from app.services.chart import make_chart_data, make_markers
 from app.services.data_provider import fetch_stock_data, get_all_tickers
+from app.services.kospi_data import upsert_prices
 from position_manager import BacktestConfig as BMC, PositionState  # type: ignore
 
 router = APIRouter(prefix="/api/backtest", tags=["backtest"])
 
 _scan_states: dict[str, dict] = {}
 _scan_tasks: dict[str, asyncio.Task] = {}
+_logger = logging.getLogger("backtest")
 
 
 def _to_bmc(cfg) -> BMC:
@@ -45,42 +53,103 @@ def _to_bmc(cfg) -> BMC:
     )
 
 
-def _run_on_data(ticker: str, data: list[dict], bmc: BMC) -> dict | None:
+def _precompute_rolling(candles: list[dict], window: int = 20) -> tuple[list[float | None], list[float | None]]:
+    n = len(candles)
+    volumes = [c.get("volume", 0) or 0 for c in candles]
+    volats = []
+    for c in candles:
+        h = c.get("high", 0) or 0
+        l = c.get("low", 0) or 0
+        cl = c.get("close", 1) or 1
+        volats.append((h - l) / cl if cl > 0 else 0)
+    rv: list[float | None] = [None] * n
+    rve: list[float | None] = [None] * n
+    if n >= window:
+        v_sum = sum(volumes[:window])
+        ve_sum = sum(volats[:window])
+        rv[window - 1] = v_sum / window
+        rve[window - 1] = ve_sum / window
+        for i in range(window, n):
+            v_sum += volumes[i] - volumes[i - window]
+            ve_sum += volats[i] - volats[i - window]
+            rv[i] = v_sum / window
+            rve[i] = ve_sum / window
+    return rv, rve
+
+
+def _check_entry_conditions(
+    rv: list[float | None], rve: list[float | None], i: int, bmc: BMC
+) -> bool:
+    avg_vol = rv[i]
+    avg_volat = rve[i]
+    if avg_vol is None:
+        return False
+    if bmc.min_volume > 0 and avg_vol < bmc.min_volume:
+        return False
+    if bmc.max_volatility < 1.0 and avg_volat is not None and avg_volat > bmc.max_volatility:
+        return False
+    return True
+
+
+async def _run_on_data(ticker: str, data: list[dict], bmc: BMC) -> list[dict] | None:
     if len(data) < 20:
         return None
-    entry = data[0]
-    state = PositionState(
-        ticker=ticker,
-        entry_date=entry["time"],
-        entry_price=entry["close"],
-        quantity=1,
-        highest_price_since_entry=entry["close"],
-        config=bmc,
-    )
-    for c in data[1:]:
-        sig, reason = state.update_and_check_signal(c["close"])
-        if sig == "SELL":
-            return {
+    use_filter = bmc.min_volume > 0 or bmc.max_volatility < 1.0
+    if use_filter:
+        rv, rve = _precompute_rolling(data)
+    results: list[dict] = []
+    i = 0
+    min_gap = 5  # minimum days between exit and re-entry
+    while i < len(data):
+        if len(data) - i < 20:
+            break
+        # Periodically yield to event loop for health checks (every ~20 candles)
+        if i % 20 == 0:
+            await asyncio.sleep(0)
+        if use_filter and not _check_entry_conditions(rv, rve, i, bmc):
+            i += 1
+            continue
+        entry = data[i]
+        state = PositionState(
+            ticker=ticker,
+            entry_date=entry["time"],
+            entry_price=entry["close"],
+            quantity=1,
+            highest_price_since_entry=entry["close"],
+            config=bmc,
+        )
+        sold = False
+        for j in range(i + 1, len(data)):
+            c = data[j]
+            sig, reason = state.update_and_check_signal(c["close"])
+            if sig == "SELL":
+                results.append({
+                    "ticker": ticker,
+                    "entry_date": entry["time"],
+                    "entry_price": entry["close"],
+                    "exit_date": c["time"],
+                    "exit_reason": reason,
+                    "exit_price": c["close"],
+                    "pnl": (c["close"] - entry["close"]) / entry["close"],
+                    "holding_days": state.holding_days,
+                })
+                i = j + min_gap
+                sold = True
+                break
+        if not sold:
+            last = data[-1]
+            results.append({
                 "ticker": ticker,
                 "entry_date": entry["time"],
                 "entry_price": entry["close"],
-                "exit_date": c["time"],
-                "exit_reason": reason,
-                "exit_price": c["close"],
-                "pnl": (c["close"] - entry["close"]) / entry["close"],
+                "exit_date": None,
+                "exit_reason": None,
+                "exit_price": last["close"],
+                "pnl": (last["close"] - entry["close"]) / entry["close"],
                 "holding_days": state.holding_days,
-            }
-    last = data[-1]
-    return {
-        "ticker": ticker,
-        "entry_date": entry["time"],
-        "entry_price": entry["close"],
-        "exit_date": None,
-        "exit_reason": None,
-        "exit_price": last["close"],
-        "pnl": (last["close"] - entry["close"]) / entry["close"],
-        "holding_days": state.holding_days,
-    }
+            })
+            break
+    return results if results else None
 
 
 @router.post("", response_model=BacktestResponse)
@@ -152,7 +221,13 @@ async def run_backtest(req: BacktestRequest) -> BacktestResponse:
 
 @router.post("/ticker", response_model=BacktestResponse)
 async def run_ticker_backtest(req: TickerBacktestRequest) -> BacktestResponse:
-    pool = get_pool()
+    if req.start_date and req.end_date:
+        sd = datetime.strptime(req.start_date, "%Y-%m-%d")
+        ed = datetime.strptime(req.end_date, "%Y-%m-%d")
+        days = (ed - sd).days
+        if days > 1825:
+            raise HTTPException(400, f"백테스트 기간은 최대 5년(1825일)까지 가능합니다. (입력: {days}일)")
+        pool = get_pool()
     candles: list[Candle] = []
 
     if pool:
@@ -217,6 +292,12 @@ async def run_ticker_backtest(req: TickerBacktestRequest) -> BacktestResponse:
 
 @router.post("/scan", response_model=ScanStatus)
 async def start_scan(req: TickerBacktestRequest) -> ScanStatus:
+    if req.start_date and req.end_date:
+        sd = datetime.strptime(req.start_date, "%Y-%m-%d")
+        ed = datetime.strptime(req.end_date, "%Y-%m-%d")
+        days = (ed - sd).days
+        if days > 1825:
+            raise HTTPException(400, f"백테스트 기간은 최대 5년(1825일)까지 가능합니다. (입력: {days}일)")
     scan_id = uuid.uuid4().hex[:8]
     state = {
         "scan_id": scan_id,
@@ -228,21 +309,75 @@ async def start_scan(req: TickerBacktestRequest) -> ScanStatus:
         "message": "Initializing...",
     }
     _scan_states[scan_id] = state
+    state["_req"] = req  # store for later portfolio building
     task = asyncio.create_task(_run_scan(scan_id, req))
     _scan_tasks[scan_id] = task
     state["status"] = "running"
     return ScanStatus(**state)
 
 
-@router.get("/scan/{scan_id}", response_model=ScanStatus)
-async def get_scan_status(scan_id: str) -> ScanStatus:
+@router.get("/scan/{scan_id}")
+async def get_scan_status(scan_id: str) -> dict:
     state = _scan_states.get(scan_id)
     if not state:
-        return ScanStatus(
-            scan_id=scan_id, status="failed", total=0, processed=0,
-            completed=0, results=[], message="Scan not found",
-        )
-    return ScanStatus(**state)
+        return {
+            "scan_id": scan_id, "status": "failed",
+            "total": 0, "processed": 0, "completed": 0,
+            "results": [], "message": "Scan not found",
+        }
+    results = state.get("results", [])
+    # Include full results only when completed; during scan return at most 50
+    if state.get("status") != "completed" and len(results) > 50:
+        results = results[:50]
+    return {
+        "scan_id": state["scan_id"],
+        "status": state.get("status", "running"),
+        "total": state.get("total", 0),
+        "processed": state.get("processed", 0),
+        "completed": state.get("completed", 0),
+        "results": results,
+        "message": state.get("message", ""),
+        "portfolio": state.get("portfolio"),
+        "portfolio_building": state.get("portfolio_building"),
+    }
+
+
+@router.post("/scan/{scan_id}/portfolio")
+async def build_scan_portfolio(scan_id: str) -> dict:
+    state = _scan_states.get(scan_id)
+    if not state:
+        return {"status": "failed", "message": "Scan not found"}
+    if state.get("status") != "completed":
+        return {"status": "failed", "message": "Scan not completed yet"}
+    if state.get("portfolio"):
+        return {"status": "completed", "message": "Portfolio already built"}
+    if state.get("portfolio_building") == "running":
+        return {"status": "running", "message": "Portfolio is being built"}
+
+    req: TickerBacktestRequest = state.get("_req")
+    if not req:
+        return {"status": "failed", "message": "Scan request parameters not found"}
+
+    bmc = _to_bmc(req.config)
+    b_amt = req.base_amt or 1_000_000
+    m_pos = req.config.maxConcurrentPositions or 9999
+    results = state.get("results", [])
+
+    if not results:
+        return {"status": "failed", "message": "No results to build portfolio from"}
+
+    async def _build():
+        try:
+            state["portfolio_building"] = "running"
+            portfolio = await _build_portfolio_timeline(results, bmc, b_amt, m_pos)
+            state["portfolio"] = portfolio
+            state["portfolio_building"] = "completed"
+        except Exception as e:
+            state["portfolio_building"] = "failed"
+            state["message"] = f"Portfolio build failed: {e}"
+
+    task = asyncio.create_task(_build())
+    return {"status": "running", "message": "Portfolio building started"}
 
 
 _load_task: asyncio.Task | None = None
@@ -259,26 +394,84 @@ async def start_load_all_stock_data() -> dict:
 
     async def _do_load():
         global _load_status
+        log_id = None
         try:
+            await execute_non_query(
+                "INSERT INTO data_load_logs (status, started_at) VALUES ('running', CURRENT_TIMESTAMP)"
+            )
+            log_id = (await execute_query(
+                "SELECT MAX(id) FROM data_load_logs"
+            ))[0][0]
+
             from app.services import kospi_data
+            from app.services.data_provider import get_all_tickers, fetch_stock_data
             n = await kospi_data.sync_kospi_tickers()
             if n == 0:
                 _load_status = {"status": "failed", "loaded": 0, "rows": 0, "error": "Failed to sync tickers"}
                 return
-            stats = await kospi_data.load_all_historical()
-            _load_status = {"status": "completed", "loaded": stats.get("success", 0), "rows": stats.get("rows", 0), "error": ""}
-            try:
-                from app.database import execute_non_query
-                msg = f"[DATA-LOAD] {stats.get('success', 0)} stocks, {stats.get('rows', 0)} rows loaded"
+
+            last_date = await kospi_data.get_last_trade_date()
+            today = date.today()
+            if last_date and last_date >= today:
+                _load_status = {"status": "skipped", "loaded": 0, "rows": 0, "error": ""}
+                print(f"[DATA-LOAD] Data up to date (last: {last_date})")
+                return
+
+            if last_date and (today - last_date).days <= 7:
+                print(f"[DATA-LOAD] Incremental update from {last_date}")
+                stats = await kospi_data.run_daily_update()
+                total_loaded = stats.get("updated", 0)
+                total_rows = stats.get("rows", 0)
+                kosdaq_loaded = 0
+                kosdaq_rows = 0
+            else:
+                print(f"[DATA-LOAD] Full load (last_date={last_date})")
+                stats = await kospi_data.load_all_historical()
+                total_loaded = stats.get("success", 0)
+                total_rows = stats.get("rows", 0)
+
+                all_tickers = await get_all_tickers()
+                kosdaq_tickers = [t for t in all_tickers if t.get("market") == "KOSDAQ"]
+                sem = asyncio.Semaphore(5)
+                async def load_one(t_info):
+                    async with sem:
+                        data = await fetch_stock_data(t_info["ticker"])
+                        if data:
+                            n = await kospi_data.upsert_prices(t_info["ticker"], data)
+                            return n
+                        return 0
+                results = await asyncio.gather(*[load_one(t) for t in kosdaq_tickers])
+                kosdaq_loaded = sum(1 for r in results if r > 0)
+                kosdaq_rows = sum(results)
+
+            _load_status = {
+                "status": "completed",
+                "loaded": total_loaded + kosdaq_loaded,
+                "rows": total_rows + kosdaq_rows,
+                "kosdaq": kosdaq_loaded,
+                "error": "",
+            }
+            if log_id:
                 await execute_non_query(
-                    "INSERT INTO trade_logs (ticker, action, price, quantity, reason) "
-                    "VALUES (:1, 'INFO', 0, 0, :2)",
-                    ["SYSTEM", msg],
+                    "UPDATE data_load_logs SET status = 'completed', "
+                    "kospi_loaded = :1, kosdaq_loaded = :2, total_rows = :3, "
+                    "finished_at = CURRENT_TIMESTAMP WHERE id = :4",
+                    [total_loaded, kosdaq_loaded, total_rows + kosdaq_rows, log_id],
                 )
-            except Exception:
-                pass
         except Exception as e:
+            import traceback
+            tb = traceback.format_exc()
+            print(f"[DATA-LOAD] ERROR: {e}\n{tb}")
             _load_status = {"status": "failed", "loaded": 0, "rows": 0, "error": str(e)}
+            if log_id:
+                try:
+                    await execute_non_query(
+                        "UPDATE data_load_logs SET status = 'failed', error_msg = :1, "
+                        "finished_at = CURRENT_TIMESTAMP WHERE id = :2",
+                        [str(e), log_id],
+                    )
+                except Exception:
+                    pass
 
     _load_task = asyncio.create_task(_do_load())
     return {"status": "started", "message": "Data loading started in background"}
@@ -289,10 +482,33 @@ async def load_data_status() -> dict:
     return _load_status
 
 
+@router.get("/load-data/logs")
+async def load_data_logs() -> list[dict]:
+    rows = await execute_query(
+        "SELECT id, status, kospi_loaded, kosdaq_loaded, total_rows, error_msg, "
+        "TO_CHAR(started_at, 'YYYY-MM-DD HH24:MI:SS'), "
+        "TO_CHAR(finished_at, 'YYYY-MM-DD HH24:MI:SS') "
+        "FROM data_load_logs ORDER BY id DESC FETCH FIRST 20 ROWS ONLY"
+    )
+    return [
+        {
+            "id": r[0],
+            "status": r[1] or "",
+            "kospi_loaded": int(r[2]) if r[2] else 0,
+            "kosdaq_loaded": int(r[3]) if r[3] else 0,
+            "total_rows": int(r[4]) if r[4] else 0,
+            "error_msg": r[5] or "",
+            "started_at": r[6] or "",
+            "finished_at": r[7] or "",
+        }
+        for r in rows
+    ]
+
+
 async def _process_one_stock(
     ticker_info: dict, bmc: BMC, start_date: str | None, end_date: str | None,
     preloaded: list[dict] | None = None,
-) -> dict | None:
+) -> list[dict] | None:
     ticker = ticker_info["ticker"]
     candles: list[dict] = []
 
@@ -345,118 +561,102 @@ async def _process_one_stock(
     if not candles:
         return None
 
-    # Filter by volume & volatility
-    if bmc.min_volume > 0 or bmc.max_volatility < 1.0:
-        volumes = [c.get("volume", 0) or 0 for c in candles]
-        avg_volume = sum(volumes) / len(volumes) if volumes else 0
-        if bmc.min_volume > 0 and avg_volume < bmc.min_volume:
-            return None
-        if bmc.max_volatility < 1.0:
-            ranges = []
-            for c in candles:
-                high = c.get("high", 0) or 0
-                low = c.get("low", 0) or 0
-                close = c.get("close", 1) or 1
-                ranges.append((high - low) / close)
-            avg_volatility = sum(ranges) / len(ranges) if ranges else 0
-            if avg_volatility > bmc.max_volatility:
-                return None
-
-    result = _run_on_data(ticker, candles, bmc)
-    if result is None:
+    results = await _run_on_data(ticker, candles, bmc)
+    if results is None:
         return None
 
-    result["name"] = ticker_info["name"]
-    result["sector"] = ticker_info["sector"]
-    result["market"] = ticker_info.get("market", "")
-    return result
+    for r in results:
+        r["name"] = ticker_info["name"]
+        r["sector"] = ticker_info["sector"]
+        r["market"] = ticker_info.get("market", "")
+    return results
 
 
-async def _build_portfolio_timeline(results: list[dict], candle_map: dict[str, list[dict]], bmc: BMC, base_amt: float, max_pos: int) -> list[dict]:
+async def _build_portfolio_timeline(results: list[dict], bmc: BMC, base_amt: float, max_pos: int) -> list[dict]:
     if not results or max_pos < 1:
         return []
     pos_size = base_amt / max_pos
     names: dict[str, str] = {r["ticker"]: r.get("name", "") for r in results}
 
-    # For each result, simulate day-by-day to capture trailing/BE status
-    all_trades: dict[str, list[dict]] = {}
+    # Group results by ticker to process one ticker at a time
+    by_ticker: dict[str, list[dict]] = {}
     for r in results:
-        ticker = r["ticker"]
-        candles = candle_map.get(ticker)
+        by_ticker.setdefault(r["ticker"], []).append(r)
+
+    # Build date-keyed event map (process one ticker at a time to limit memory)
+    by_date: dict[str, list[tuple]] = {}
+
+    for ticker, ticker_results in by_ticker.items():
+        candles = await fetch_stock_data(ticker)
         if not candles:
-            raw = await fetch_stock_data(ticker)
-            if not raw:
-                continue
-            candles = raw
-
-        entry_idx = next((i for i, c in enumerate(candles) if c["time"] >= r["entry_date"]), 0)
-        if entry_idx >= len(candles):
             continue
+        ticker_results.sort(key=lambda r: r["entry_date"])
+        for r in ticker_results:
+            entry_idx = next((i for i, c in enumerate(candles) if c["time"] >= r["entry_date"]), 0)
+            if entry_idx >= len(candles):
+                continue
+            entry = candles[entry_idx]
+            ps = PositionState(
+                ticker=ticker, entry_date=entry["time"], entry_price=entry["close"],
+                quantity=1, highest_price_since_entry=entry["close"], config=bmc,
+            )
+            by_date.setdefault(entry["time"], []).append((ticker, "BUY", entry["close"], None, False, False))
+            for c in candles[entry_idx + 1:]:
+                price = c["close"]
+                sig, reason = ps.update_and_check_signal(price)
+                peak = (ps.highest_price_since_entry - ps.entry_price) / ps.entry_price
+                by_date.setdefault(c["time"], []).append((
+                    ticker, sig, price, reason,
+                    peak >= bmc.trailing_activation_pct and sig != "SELL",
+                    ps.is_break_even_activated and sig != "SELL",
+                ))
+                if sig == "SELL":
+                    break
 
-        entry = candles[entry_idx]
-        state = PositionState(
-            ticker=ticker, entry_date=entry["time"], entry_price=entry["close"],
-            quantity=1, highest_price_since_entry=entry["close"], config=bmc,
-        )
-
-        trades = [{
-            "date": entry["time"], "signal": "BUY", "price": entry["close"], "reason": None,
-            "is_trailing": False, "is_be": False,
-        }]
-        for c in candles[entry_idx + 1:]:
-            price = c["close"]
-            sig, reason = state.update_and_check_signal(price)
-            peak = (state.highest_price_since_entry - state.entry_price) / state.entry_price
-            trades.append({
-                "date": c["time"], "signal": sig, "reason": reason, "price": price,
-                "is_trailing": (peak >= bmc.trailing_activation_pct and sig != "SELL"),
-                "is_be": (state.is_break_even_activated and sig != "SELL"),
-            })
-            if sig == "SELL":
-                break
-        all_trades[ticker] = trades
-
-    all_dates = sorted({d["date"] for tl in all_trades.values() for d in tl})
-    if not all_dates:
+    if not by_date:
         return []
 
     active: dict[str, dict] = {}
     cash = base_amt
     portfolio = []
+    all_dates = sorted(by_date)
 
-    for date in all_dates:
-        for ticker, trades in all_trades.items():
-            td = next((d for d in trades if d["date"] == date), None)
-            if not td:
-                continue
+    for di, date in enumerate(all_dates):
+        if di > 0 and di % 50 == 0:
+            await asyncio.sleep(0)
+        events = by_date[date]
 
-            if td["signal"] == "BUY" and ticker not in active and len(active) < max_pos:
-                active[ticker] = dict(td)
-                active[ticker]["entry_price"] = td["price"]
-                cash -= pos_size
+        # Phase 1: Handle BUY signals (new position entries)
+        for ticker, sig, price, reason, is_trailing, is_be in events:
+            if sig == "BUY" and ticker not in active and len(active) < max_pos:
+                shares = int(pos_size / price) if price > 0 else 0
+                if shares == 0:
+                    continue
+                active[ticker] = {"entry_price": price, "current_price": price, "shares": shares, "is_trailing": is_trailing, "is_be": is_be}
 
+        # Phase 2: Update active positions with current price/signal
         for ticker in list(active.keys()):
-            td = next((d for d in all_trades.get(ticker, []) if d["date"] == date), None)
-            if td:
-                active[ticker].update(td)
-                active[ticker]["current_price"] = td["price"]
+            for t2, sig, price, reason, is_trailing, is_be in events:
+                if t2 == ticker:
+                    active[ticker].update({"current_price": price, "signal": sig, "reason": reason, "is_trailing": is_trailing, "is_be": is_be})
 
         holdings = []
         for ticker, info in sorted(active.items()):
-            if info["signal"] == "BUY":
+            sig = info.get("signal", "")
+            if sig == "BUY":
                 label = "매수"
-            elif info["signal"] == "SELL":
+            elif sig == "SELL":
                 label = "매도"
-            elif info["is_trailing"]:
+            elif info.get("is_trailing"):
                 label = "트레일링"
-            elif info["is_be"]:
+            elif info.get("is_be"):
                 label = "BE"
             else:
                 label = "홀드"
             entry = info["entry_price"]
             curr = info["current_price"]
             pnl = (curr - entry) / entry if entry else 0
-            shares = int(pos_size / entry) if entry > 0 else 0
+            shares = info.get("shares", int(pos_size / entry) if entry > 0 else 0)
             holdings.append({
                 "ticker": ticker, "name": names.get(ticker, ""),
                 "entry_price": entry, "shares": shares,
@@ -466,11 +666,13 @@ async def _build_portfolio_timeline(results: list[dict], candle_map: dict[str, l
             })
 
         for ticker in list(active.keys()):
-            if active[ticker]["signal"] == "SELL":
-                info = active[ticker]
-                pnl = (info["current_price"] - info["entry_price"]) / info["entry_price"]
-                cash += pos_size * (1 + pnl)
-                del active[ticker]
+            for t2, sig, price, reason, is_trailing, is_be in events:
+                if t2 == ticker and sig == "SELL":
+                    info = active[ticker]
+                    pnl = (price - info["entry_price"]) / info["entry_price"]
+                    cash += pos_size * (1 + pnl)
+                    del active[ticker]
+                    break
 
         equity = sum(h["pnl_pct"] * pos_size + pos_size for h in holdings if h["status"] != "매도")
         tv = cash + equity
@@ -490,105 +692,169 @@ async def _run_scan(scan_id: str, req: TickerBacktestRequest) -> None:
     start_date = req.start_date
     end_date = req.end_date
 
+    await asyncio.sleep(0)  # yield before any work for event loop I/O
+
     try:
         state["message"] = "Fetching tickers..."
-        tickers = await get_all_tickers()
-        state["total"] = len(tickers)
+        _logger.warning("[SCAN %s] Calling get_all_tickers()...", scan_id)
+        all_tickers = await get_all_tickers()
+        _logger.warning("[SCAN %s] get_all_tickers returned %d tickers", scan_id, len(all_tickers))
+        total = len(all_tickers)
+        limit = req.config.rankingCandidateLimit or 9999
+        min_vol = req.config.minVolume
+        max_volat = req.config.maxVolatility
 
-        # Pre-fetch Oracle candle data in batches
-        state["message"] = "Loading market data from DB..."
-        candle_map: dict[str, list[dict]] = {}
+        # ── Step 1: Pre-filter candidates via SQL ──
+        state["message"] = "Pre-filtering candidates from DB..."
+        candidate_codes: set[str] = set()
         pool = get_pool()
+        _logger.warning("[SCAN %s] pool=%s start_date=%s end_date=%s", scan_id, pool, start_date, end_date)
         if pool:
-            BATCH = 1000
-            codes = [t["ticker"] for t in tickers]
-            for i in range(0, len(codes), BATCH):
-                batch = codes[i:i + BATCH]
-                binds = list(batch)
-                ph = ', '.join(f':{j + 1}' for j in range(len(batch)))
-                sql = (
-                    "SELECT ticker, trade_date, open_price, high_price, low_price, close_price, volume "
-                    "FROM stock_daily_prices WHERE ticker IN (" + ph + ")"
+            # Always pick top candidates by volume to limit processing
+            cand_limit = min(limit if limit > 0 else 9999, 500)
+            _logger.warning("[SCAN %s] cand_limit=%d", scan_id, cand_limit)
+            # Use trailing ~6mo (120 trading days) from end_date for volume/volatility ranking
+            rank_start = (datetime.strptime(end_date, "%Y-%m-%d") - timedelta(days=180)).strftime("%Y-%m-%d") if end_date else start_date
+            rank_sql = """
+                WITH ticker_stats AS (
+                    SELECT ticker,
+                           AVG(volume) AS avg_vol,
+                           AVG((high_price - low_price) / NULLIF(close_price, 0)) AS avg_volat
+                    FROM (
+                        SELECT ticker, volume, high_price, low_price, close_price
+                        FROM stock_daily_prices
+                        WHERE trade_date >= TO_DATE(:rs, 'YYYY-MM-DD')
+                          AND trade_date <= TO_DATE(:ed, 'YYYY-MM-DD')
+                    )
+                    GROUP BY ticker
                 )
-                bi = len(batch) + 1
-                if start_date:
-                    sql += f" AND trade_date >= TO_DATE(:{bi},'YYYY-MM-DD')"
-                    binds.append(start_date)
-                    bi += 1
-                if end_date:
-                    sql += f" AND trade_date <= TO_DATE(:{bi},'YYYY-MM-DD')"
-                    binds.append(end_date)
-                sql += " ORDER BY ticker, trade_date"
-                try:
-                    rows = await execute_query(sql, binds)
-                    for r in rows:
-                        t = str(r[0])
-                        candle = {
-                            "time": str(r[1].date() if hasattr(r[1], "date") else r[1]),
-                            "open": float(r[2]),
-                            "high": float(r[3]),
-                            "low": float(r[4]),
-                            "close": float(r[5]),
-                            "volume": int(r[6]) if r[6] is not None else 0,
-                        }
-                        candle_map.setdefault(t, []).append(candle)
-                except Exception as e:
-                    print(f"[WARN] Batch query failed ({i}..{i + len(batch)}): {e}")
+                SELECT ticker FROM ticker_stats
+                WHERE 1=1
+                """
+            binds: list = [rank_start, end_date]
+            bi = 3
+            if min_vol > 0:
+                rank_sql += f" AND avg_vol > :{bi}"
+                binds.append(float(min_vol))
+                bi += 1
+            if max_volat < 1.0:
+                rank_sql += f" AND avg_volat < :{bi}"
+                binds.append(float(max_volat))
+                bi += 1
+            rank_sql += f"""
+                ORDER BY avg_vol DESC
+                OFFSET 0 ROWS FETCH NEXT {cand_limit} ROWS ONLY
+            """
+            try:
+                _logger.warning("[SCAN %s] Running pre-filter query...", scan_id)
+                rows = await execute_query(rank_sql, binds)
+                _logger.warning("[SCAN %s] pre-filter returned %d rows", scan_id, len(rows) if rows else 0)
+                candidate_codes = {str(r[0]) for r in rows}
+                _logger.warning("[SCAN %s] candidate_codes=%d", scan_id, len(candidate_codes))
+            except Exception as e:
+                _logger.warning("[SCAN %s] Pre-filter query error: %s", scan_id, e)
 
-        state["message"] = f"Processing {state['total']} stocks..."
-        sem = asyncio.Semaphore(100)
+        # Tickers with DB data get priority; others get Naver fallback
+        if candidate_codes:
+            db_tickers = [t for t in all_tickers if t["ticker"] in candidate_codes]
+            naver_tickers = [t for t in all_tickers if t["ticker"] not in candidate_codes and t["ticker"] not in {x["ticker"] for x in db_tickers}]
+        else:
+            db_tickers = all_tickers
+            naver_tickers = []
 
-        async def process(t):
-            async with sem:
-                ticker = t["ticker"]
-                preloaded = candle_map.get(ticker)
-                return await _process_one_stock(t, bmc, start_date, end_date, preloaded=preloaded)
+        total_candidates = len(db_tickers) + len(naver_tickers)
+        state["total"] = total_candidates
+        state["message"] = f"Processing {total_candidates} candidates (DB:{len(db_tickers)} Naver:{len(naver_tickers)})..."
+        _logger.warning("[SCAN %s] Starting batch loop: %d db + %d naver = %d total", scan_id, len(db_tickers), len(naver_tickers), total_candidates)
 
+        # ── Step 2: Process candidates in batches ──
+        DB_BATCH = 1000
+        BATCH = 50
+        all_candidates = db_tickers + naver_tickers
         done = 0
-        pending = [process(t) for t in tickers]
-        for coro in asyncio.as_completed(pending):
-            result = await coro
-            done += 1
-            state["processed"] = done
-            if result:
-                state["results"].append(result)
-                state["completed"] += 1
-            if done % 50 == 0:
-                state["message"] = f"({done}/{state['total']}) {state['completed']} signals found"
 
-        # Apply rankingCandidateLimit
-        limit = req.config.rankingCandidateLimit
-        if limit > 0 and len(state["results"]) > limit:
-            state["results"].sort(key=lambda r: abs(r.get("pnl", 0)), reverse=True)
-            state["results"] = state["results"][:limit]
-            state["completed"] = len(state["results"])
+        for batch_start in range(0, len(all_candidates), BATCH):
+            batch_tickers = all_candidates[batch_start:batch_start + BATCH]
+            ticker_codes = [t["ticker"] for t in batch_tickers]
+            is_db_batch = any(t["ticker"] in candidate_codes for t in batch_tickers) if candidate_codes else True
 
-        # Portfolio simulation
-        b_amt = req.base_amt
-        m_pos = req.config.maxConcurrentPositions
-        portfolio = await _build_portfolio_timeline(state["results"], candle_map, bmc, b_amt or 1_000_000, m_pos or 9999)
-        state["portfolio"] = portfolio
+            await asyncio.sleep(0)  # yield to event loop for health checks
 
-        # Save config to saved_configs
-        try:
-            params_json = json.dumps(req.config.model_dump())
-            result_summary = json.dumps({
-                "completed": state["completed"],
-                "total": state["total"],
-                "start_date": state.get("start_date", req.start_date),
-                "end_date": state.get("end_date", req.end_date),
-                "base_amt": req.base_amt,
-            })
-            await execute_non_query(
-                "INSERT INTO saved_configs (name, params, result_summary) "
-                "VALUES (:1, :2, :3)",
-                [f"Scan {req.start_date}~{req.end_date}", params_json, result_summary],
-            )
-        except Exception as e:
-            print(f"[BACKTEST] Save config error: {e}")
+            batch_map: dict[str, list[dict]] = {}
+            if is_db_batch:
+                for db_start in range(0, len(ticker_codes), DB_BATCH):
+                    db_codes = ticker_codes[db_start:db_start + DB_BATCH]
+                    binds_q = list(db_codes)
+                    ph = ', '.join(f':{j + 1}' for j in range(len(db_codes)))
+                    sql = (
+                        "SELECT ticker, trade_date, open_price, high_price, low_price, close_price, volume "
+                        "FROM stock_daily_prices WHERE ticker IN (" + ph + ")"
+                    )
+                    bi_q = len(db_codes) + 1
+                    if start_date:
+                        sql += f" AND trade_date >= TO_DATE(:{bi_q},'YYYY-MM-DD')"
+                        binds_q.append(start_date)
+                        bi_q += 1
+                    if end_date:
+                        sql += f" AND trade_date <= TO_DATE(:{bi_q},'YYYY-MM-DD')"
+                        binds_q.append(end_date)
+                    sql += " ORDER BY ticker, trade_date"
+                    try:
+                        rows = await execute_query(sql, binds_q)
+                        for r_idx, r in enumerate(rows):
+                            if r_idx > 0 and r_idx % 1000 == 0:
+                                await asyncio.sleep(0)
+                            t = str(r[0])
+                            candle = {
+                                "time": str(r[1].date() if hasattr(r[1], "date") else r[1]),
+                                "open": float(r[2]),
+                                "high": float(r[3]),
+                                "low": float(r[4]),
+                                "close": float(r[5]),
+                                "volume": int(r[6]) if r[6] is not None else 0,
+                            }
+                            batch_map.setdefault(t, []).append(candle)
+                    except Exception as e:
+                        print(f"[WARN] DB batch failed ({db_start}..{db_start + len(db_codes)}): {e}")
+            else:
+                async def fetch_one(t_info):
+                    t = t_info["ticker"]
+                    data = await fetch_stock_data(t)
+                    if not data:
+                        return t, None
+                    return t, data
+
+                tasks = [fetch_one(t_info) for t_info in batch_tickers]
+                gathered = await asyncio.gather(*tasks)
+                batch_map = {t: data for t, data in gathered if data}
+
+            await asyncio.sleep(0)  # yield after gather before processing
+            # Process batch — sequential yields between CPU-bound tasks
+            _logger.warning("[SCAN %s] Starting batch %d with %d tickers", scan_id, batch_start // BATCH + 1, len(batch_tickers))
+            batch_results = []
+            for t_info in batch_tickers:
+                await asyncio.sleep(0)  # yield to event loop between each task
+                r = await _process_one_stock(
+                    t_info, bmc, start_date, end_date,
+                    preloaded=batch_map.get(t_info["ticker"]),
+                )
+                batch_results.append(r)
+            _logger.warning("[SCAN %s] Batch completed", scan_id)
+            for idx, result_list in enumerate(batch_results):
+                done += 1
+                state["processed"] = done
+                await asyncio.sleep(0)  # yield to event loop for health checks
+                if result_list:
+                    for r in result_list:
+                        state["results"].append(r)
+                    state["completed"] += len(result_list)
+
+            del batch_map
+            gc.collect()
+            state["message"] = f"({done}/{total_candidates}) {state['completed']} signals found"
 
         state["status"] = "completed"
-        state["message"] = f"Scan completed. {state['completed']}/{state['total']} stocks processed."
+        state["message"] = f"Scan completed. {state['completed']} signals found across {total} stocks."
 
     except Exception as e:
         state["status"] = "failed"
@@ -616,6 +882,32 @@ async def list_configs() -> list[dict]:
     return result
 
 
+class SaveConfigRequest(BaseModel):
+    name: str = ""
+    params: dict[str, Any] = {}
+    start_date: str = ""
+    end_date: str = ""
+    base_amt: float = 0.0
+    result_summary: dict[str, Any] = {}
+
+
+@router.post("/configs/save")
+async def save_config(req: SaveConfigRequest) -> dict:
+    params_json = json.dumps(req.params)
+    summary_data = {"start_date": req.start_date, "end_date": req.end_date, "base_amt": req.base_amt}
+    if req.result_summary:
+        summary_data.update(req.result_summary)
+    summary = json.dumps(summary_data)
+    try:
+        await execute_non_query(
+            "INSERT INTO saved_configs (name, params, result_summary) VALUES (:1, :2, :3)",
+            [req.name, params_json, summary],
+        )
+        return {"status": "saved"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.post("/configs/{config_id}/activate")
 async def activate_config(config_id: int) -> dict:
     await execute_non_query("UPDATE saved_configs SET is_active = 'N'")
@@ -623,6 +915,41 @@ async def activate_config(config_id: int) -> dict:
         "UPDATE saved_configs SET is_active = 'Y' WHERE id = :1", [config_id]
     )
     return {"status": "activated", "id": config_id}
+
+
+@router.post("/configs/deactivate")
+async def deactivate_config() -> dict:
+    await execute_non_query("UPDATE saved_configs SET is_active = 'N'")
+    return {"status": "deactivated"}
+
+
+class DeleteConfigsRequest(BaseModel):
+    ids: list[int] = []
+
+
+@router.post("/configs/delete")
+async def delete_configs(req: DeleteConfigsRequest) -> dict:
+    if not req.ids:
+        raise HTTPException(status_code=400, detail="No IDs provided")
+    placeholders = ", ".join(f":{i+1}" for i in range(len(req.ids)))
+    await execute_non_query(
+        f"DELETE FROM saved_configs WHERE id IN ({placeholders})",
+        req.ids,
+    )
+    return {"status": "deleted", "count": len(req.ids)}
+
+
+@router.get("/configs/{config_id}/portfolio")
+async def get_config_portfolio(config_id: int) -> list[dict]:
+    row = await execute_query(
+        "SELECT portfolio_data FROM saved_configs WHERE id = :1", [config_id]
+    )
+    if row and row[0][0]:
+        try:
+            return json.loads(row[0][0])
+        except Exception:
+            pass
+    return []
 
 
 # ── Breadth ──
@@ -700,13 +1027,14 @@ async def refresh_breadth() -> dict:
 
 # ── Trade logs ──
 @router.get("/trades")
-async def list_trade_logs(limit: int = 50) -> list[dict]:
-    rows = await execute_query(
-        "SELECT id, ticker, action, price, quantity, reason, "
-        "TO_CHAR(traded_at, 'YYYY-MM-DD HH24:MI:SS') "
-        "FROM trade_logs ORDER BY traded_at DESC FETCH FIRST :1 ROWS ONLY",
-        [limit],
-    )
+async def list_trade_logs(limit: int = 50, ticker: str = "") -> list[dict]:
+    if ticker:
+        sql = "SELECT id, ticker, action, price, quantity, reason, TO_CHAR(traded_at, 'YYYY-MM-DD HH24:MI:SS') FROM trade_logs WHERE ticker = :1 ORDER BY traded_at DESC FETCH FIRST :2 ROWS ONLY"
+        params = [ticker, limit]
+    else:
+        sql = "SELECT id, ticker, action, price, quantity, reason, TO_CHAR(traded_at, 'YYYY-MM-DD HH24:MI:SS') FROM trade_logs ORDER BY traded_at DESC FETCH FIRST :1 ROWS ONLY"
+        params = [limit]
+    rows = await execute_query(sql, params)
     result = []
     for r in rows:
         result.append({
@@ -725,23 +1053,25 @@ async def list_trade_logs(limit: int = 50) -> list[dict]:
 @router.get("/scheduler-config")
 async def get_scheduler_config() -> dict:
     row = await execute_query(
-        "SELECT interval_seconds, breadth_threshold "
+        "SELECT interval_seconds, breadth_threshold, breadth_upper "
         "FROM scheduler_config ORDER BY id DESC FETCH FIRST 1 ROW ONLY"
     )
     if row:
         return {
             "interval_seconds": int(row[0][0]) if row[0][0] else 60,
             "breadth_threshold": float(row[0][1]) if row[0][1] else 0.3,
+            "breadth_upper": float(row[0][2]) if len(row[0]) > 2 and row[0][2] else 0.7,
         }
-    return {"interval_seconds": 60, "breadth_threshold": 0.3}
+    return {"interval_seconds": 60, "breadth_threshold": 0.3, "breadth_upper": 0.7}
 
 
 @router.post("/scheduler-config")
 async def update_scheduler_config(data: dict) -> dict:
     interval = int(data.get("interval_seconds", 60))
     threshold = float(data.get("breadth_threshold", 0.3))
+    upper = float(data.get("breadth_upper", 0.7))
     await execute_non_query(
-        "INSERT INTO scheduler_config (interval_seconds, breadth_threshold) VALUES (:1, :2)",
-        [interval, threshold],
+        "INSERT INTO scheduler_config (interval_seconds, breadth_threshold, breadth_upper) VALUES (:1, :2, :3)",
+        [interval, threshold, upper],
     )
-    return {"status": "updated", "interval_seconds": interval, "breadth_threshold": threshold}
+    return {"status": "updated", "interval_seconds": interval, "breadth_threshold": threshold, "breadth_upper": upper}

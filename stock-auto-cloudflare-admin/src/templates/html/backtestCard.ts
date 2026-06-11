@@ -24,15 +24,16 @@ export const backtestCard = `
       <input id="bt_maxPos" type="number" value="10" step="1" onchange="saveParams()">
     </label>
     <label>최소 거래량 (minVolume)
-      <input id="bt_minVol" type="number" value="500000" step="10000" onchange="saveParams()">
+      <input id="bt_minVol" type="text" value="500000" onchange="saveParams()" onkeyup="comma(this)" onblur="comma(this)">
     </label>
     <label>최대 변동성 (maxVolatility)
       <input id="bt_maxVol" type="number" value="0.12" step="0.01" onchange="saveParams()">
     </label>
     <label>기준 금액 (baseAmount)
-      <input id="bt_baseAmt" type="number" value="1000000" step="100000" onchange="saveParams()">
+      <input id="bt_baseAmt" type="text" value="1000000" onchange="saveParams()" onkeyup="comma(this)" onblur="comma(this)">
     </label>
   </div>
+  <button class="btn" onclick="saveParamConfig()" style="font-size:12px;padding:6px 14px">설정 저장</button>
 </div>
 
 <div class="card">
@@ -60,7 +61,9 @@ export const backtestCard = `
 </div>
 
 <div class="card hidden" id="scanResultsCard">
-  <h3>백테스트 결과 <span style="font-size:12px;color:#8b949e;font-weight:400" id="scanResultCount"></span></h3>
+  <h3>백테스트 결과 <span style="font-size:12px;color:#8b949e;font-weight:400" id="scanResultCount"></span>
+    <button class="btn" onclick="saveCurrentConfig()" style="font-size:11px;padding:2px 10px;margin-left:8px;vertical-align:middle">현재 설정 저장</button>
+  </h3>
   <div class="stats-bar hidden" id="statsBar">
     <div class="stat-item"><span class="stat-label">승률</span><span class="stat-val" id="statsWinRate">-</span></div>
     <div class="stat-item"><span class="stat-label">평균승리</span><span class="stat-val" id="statsAvgWin">-</span></div>
@@ -112,7 +115,7 @@ export const backtestCard = `
   </div>
 </div>
 
-<div id="detailModalOverlay" class="modal-overlay" onclick="if(event.target===this)closeDetailView()">
+<div id="detailModalOverlay" class="modal-overlay">
   <div class="detail-modal-box">
     <div class="detail-modal-header">
       <h3 id="detailModalTitle" style="margin:0"></h3>

@@ -343,82 +343,64 @@ export const backtestCss = `
   flex-direction: column;
   padding: 1.5rem;
   position: relative;
+  overflow: hidden;
 }
 .detail-modal-header {
   display: flex;
-  justify-content: space-between;
   align-items: center;
   flex-shrink: 0;
+  gap: 8px;
 }
-.detail-modal-body {
+.detail-modal-header h3 {
   flex: 1;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
   overflow: hidden;
-}
-.detail-modal-stats {
-  flex-shrink: 0;
-}
-.detail-modal-chart {
-  width: 100%;
-  height: 100%;
-  min-height: 300px;
-  border-radius: 6px;
-  overflow: hidden;
-}
-.detail-modal-grid {
-  flex: 1;
-  min-height: 0;
-  overflow-y: auto;
-}
-.detail-tab-bar {
-  display: flex;
-  gap: 0;
-  border-bottom: 1px solid #30363d;
-  flex-shrink: 0;
-  margin-top: 0.75rem;
-}
-.detail-tab {
-  background: none;
-  border: none;
-  border-bottom: 2px solid transparent;
-  color: #8b949e;
-  padding: 0.5rem 1rem;
-  cursor: pointer;
-  font-size: 13px;
-  transition: color 0.15s, border-color 0.15s;
-}
-.detail-tab:hover { color: #c9d1d9 }
-.detail-tab.active {
-  color: #58a6ff;
-  border-bottom-color: #58a6ff;
-}
-.detail-tab-content {
-  flex: 1;
-  min-height: 0;
-  position: relative;
-}
-.detail-tab-pane {
-  display: none;
-  width: 100%;
-  height: 100%;
-  overflow: hidden;
-}
-.detail-tab-pane.active {
-  display: flex;
-  flex-direction: column;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  margin: 0;
+  min-width: 0;
 }
 .modal-close-btn {
   background: none;
   border: none;
   color: #8b949e;
-  font-size: 24px;
+  font-size: 22px;
   cursor: pointer;
   line-height: 1;
-  padding: 0 4px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  flex-shrink: 0;
+  flex-basis: 36px;
 }
-.modal-close-btn:hover { color: #c9d1d9 }
+.modal-close-btn:hover { color: #c9d1d9; background: #21262d }
+
+.detail-tab-bar {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex-shrink: 0;
+}
+.detail-tab {
+  background: #21262d;
+  border: 1px solid #30363d;
+  color: #8b949e;
+  padding: 6px 12px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 12px;
+  text-align: center;
+}
+.detail-tab.active {
+  background: #1f6feb;
+  border-color: #1f6feb;
+  color: #fff;
+}
+.detail-tab-pane { display: none }
+.detail-tab-pane.active { display: flex; flex-direction: column; min-height: 0; flex: 1; }
+
+.detail-modal-body { flex: 1; overflow: hidden; display: flex; flex-direction: column; min-height: 0; }
+.detail-tab-content { flex: 1; overflow: hidden; display: flex; flex-direction: column; min-height: 0; }
+.detail-modal-grid { overflow: auto; flex: 1; min-height: 0; }
+.detail-modal-chart { overflow: hidden; flex: 1; min-height: 0; }
 
 .result-summary {
   display: grid;

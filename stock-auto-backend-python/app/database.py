@@ -1,15 +1,41 @@
 from __future__ import annotations
 
+import asyncio
+import concurrent.futures
 import os
 
 import oracledb
 from app.config import settings
 
 _pool: oracledb.Pool | None = None
+_db_executor = concurrent.futures.ThreadPoolExecutor(max_workers=16, thread_name_prefix="db")
+
+
+def _shutdown_executor():
+    global _db_executor
+    try:
+        _db_executor.shutdown(wait=False)
+    except Exception:
+        pass
 
 
 def get_pool() -> oracledb.Pool | None:
     return _pool
+
+
+async def acquire_conn(timeout: float = 15) -> oracledb.Connection:
+    pool = _pool
+    if not pool:
+        raise RuntimeError("Oracle pool not initialized")
+    loop = asyncio.get_running_loop()
+    try:
+        conn = await asyncio.wait_for(
+            loop.run_in_executor(_db_executor, pool.acquire),
+            timeout=timeout,
+        )
+        return conn
+    except asyncio.TimeoutError:
+        raise RuntimeError(f"Could not acquire DB connection within {timeout}s")
 
 
 async def init_oracle() -> None:
@@ -29,8 +55,10 @@ async def init_oracle() -> None:
         password=settings.db_password,
         dsn=dsn or settings.oracle_dsn,
         min=1,
-        max=5,
+        max=10,
         increment=1,
+        getmode=oracledb.POOL_GETMODE_TIMEDWAIT,
+        wait_timeout=15000,
     )
     await _ensure_tables()
     print(f"[INFO] Oracle pool ready — {settings.oracle_dsn}")
@@ -42,10 +70,14 @@ async def close_oracle() -> None:
         _pool.close()
         _pool = None
         print("[INFO] Oracle pool closed")
+    _shutdown_executor()
+    print("[INFO] DB executor shut down")
 
 
 async def _ensure_tables() -> None:
-    ddl_statements = [
+    conn = await acquire_conn()
+    try:
+        ddl_statements = [
         """
         CREATE TABLE IF NOT EXISTS active_positions (
             id NUMBER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
@@ -111,6 +143,7 @@ async def _ensure_tables() -> None:
             name VARCHAR2(200),
             params CLOB,
             result_summary CLOB,
+            portfolio_data CLOB,
             is_active CHAR(1) DEFAULT 'N',
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
@@ -129,16 +162,56 @@ async def _ensure_tables() -> None:
             CONSTRAINT uk_ticker_date UNIQUE (ticker, trade_date)
         )
         """,
+        """
+        CREATE TABLE IF NOT EXISTS data_load_logs (
+            id NUMBER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+            status VARCHAR2(20),
+            kospi_loaded NUMBER(6) DEFAULT 0,
+            kosdaq_loaded NUMBER(6) DEFAULT 0,
+            total_rows NUMBER(10) DEFAULT 0,
+            error_msg CLOB,
+            started_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            finished_at TIMESTAMP
+        )
+        """,
     ]
-    pool = _pool
-    if not pool:
-        return
-    conn = pool.acquire()
-    try:
         for ddl in ddl_statements:
             conn.cursor().execute(ddl)
+        # ALTER TABLE for columns that may already exist
+        alter_statements = [
+            "ALTER TABLE saved_configs ADD (portfolio_data CLOB)",
+            "ALTER TABLE scheduler_config ADD (breadth_upper NUMBER(5,2) DEFAULT 0.70)",
+        ]
+        for alt in alter_statements:
+            try:
+                conn.cursor().execute(alt)
+            except Exception:
+                pass  # column likely already exists
         conn.commit()
         print("[INFO] All tables ensured")
+    finally:
+        conn.close()
+
+
+def _convert_lobs(row: tuple) -> tuple:
+    return tuple(v.read() if hasattr(v, "read") else v for v in row)
+
+
+def _run_query(pool, sql: str, binds: list | None) -> list[tuple]:
+    conn = pool.acquire()
+    try:
+        cur = conn.cursor()
+        cur.execute(sql, binds or [])
+        return [_convert_lobs(r) for r in cur.fetchall()]
+    finally:
+        conn.close()
+
+
+def _run_non_query(pool, sql: str, binds: list | None) -> None:
+    conn = pool.acquire()
+    try:
+        conn.cursor().execute(sql, binds or [])
+        conn.commit()
     finally:
         conn.close()
 
@@ -147,22 +220,25 @@ async def execute_query(sql: str, binds: list | None = None) -> list[tuple]:
     pool = _pool
     if not pool:
         raise RuntimeError("Oracle pool not initialized")
-    conn = pool.acquire()
+    loop = asyncio.get_running_loop()
     try:
-        cur = conn.cursor()
-        cur.execute(sql, binds or [])
-        return cur.fetchall()
-    finally:
-        conn.close()
+        return await asyncio.wait_for(
+            loop.run_in_executor(_db_executor, _run_query, pool, sql, binds),
+            timeout=30,
+        )
+    except asyncio.TimeoutError:
+        raise RuntimeError(f"DB query timed out: {sql[:80]}")
 
 
 async def execute_non_query(sql: str, binds: list | None = None) -> None:
     pool = _pool
     if not pool:
         raise RuntimeError("Oracle pool not initialized")
-    conn = pool.acquire()
+    loop = asyncio.get_running_loop()
     try:
-        conn.cursor().execute(sql, binds or [])
-        conn.commit()
-    finally:
-        conn.close()
+        return await asyncio.wait_for(
+            loop.run_in_executor(_db_executor, _run_non_query, pool, sql, binds),
+            timeout=30,
+        )
+    except asyncio.TimeoutError:
+        raise RuntimeError(f"DB non-query timed out: {sql[:80]}")

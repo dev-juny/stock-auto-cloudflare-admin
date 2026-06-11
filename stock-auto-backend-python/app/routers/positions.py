@@ -54,13 +54,19 @@ async def sync_position(req: PositionSyncRequest) -> PositionResponse:
         if br and br[0][0] is not None:
             breadth = float(br[0][0])
             th = await execute_query(
-                "SELECT breadth_threshold FROM scheduler_config ORDER BY id DESC FETCH FIRST 1 ROW ONLY"
+                "SELECT breadth_threshold, breadth_upper FROM scheduler_config ORDER BY id DESC FETCH FIRST 1 ROW ONLY"
             )
             threshold = float(th[0][0]) if th and th[0][0] else 0.3
+            upper = float(th[0][1]) if th and len(th[0]) > 1 and th[0][1] else 0.7
             if breadth < threshold:
                 raise HTTPException(
                     status_code=400,
                     detail=f"Market breadth ({breadth:.1%}) below threshold ({threshold:.1%}), new entry held",
+                )
+            if breadth > upper:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Market breadth ({breadth:.1%}) above upper limit ({upper:.1%}), new entry held",
                 )
     except HTTPException:
         raise

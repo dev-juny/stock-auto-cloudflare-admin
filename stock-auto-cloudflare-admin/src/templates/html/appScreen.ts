@@ -2,9 +2,9 @@ import { statusCard } from './statusCard';
 import { balanceCard } from './balanceCard';
 import { logsCard } from './logsCard';
 import { backtestCard } from './backtestCard';
-import { positionsCard } from './positionsCard';
 import { strategyCard } from './strategyCard';
 import { tradeLogsCard } from './tradeLogsCard';
+import { batchStatusCard } from './batchStatusCard';
 
 export const appScreen = `
 <div id="sidebarOverlay" class="sidebar-overlay" onclick="closeSidebar()"></div>
@@ -29,7 +29,7 @@ export const appScreen = `
     <div id="dashboardPage" class="page active">
       ${statusCard}
       ${strategyCard}
-      ${positionsCard}
+      ${batchStatusCard}
       ${balanceCard}
       ${tradeLogsCard}
     </div>

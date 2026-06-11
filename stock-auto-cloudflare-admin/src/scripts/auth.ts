@@ -31,11 +31,15 @@ async function checkSession() {
   document.getElementById('loginScreen').classList.remove('hidden')
 }
 
+var _refreshTimer = 0
+
 function showDashboard() {
   document.getElementById('loadingScreen').classList.add('hidden')
   document.getElementById('loginScreen').classList.add('hidden')
   document.getElementById('appScreen').classList.remove('hidden')
   refreshAll()
+  if (_refreshTimer) clearInterval(_refreshTimer)
+  _refreshTimer = setInterval(refreshAll, 30000)
 }
 
 async function login() {
@@ -58,6 +62,7 @@ async function login() {
 
 async function logout() {
   setToken('')
+  if (_refreshTimer) clearInterval(_refreshTimer)
   await fetch(API + '/api/auth/logout', { method: 'POST', credentials: 'include' })
   location.reload()
 }

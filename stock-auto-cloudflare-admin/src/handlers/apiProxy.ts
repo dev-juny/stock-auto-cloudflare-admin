@@ -1,5 +1,9 @@
-const pickBackend = (pathname: string, baseUrl: string, _pythonUrl: string): string => {
+const pickBackend = (pathname: string, baseUrl: string, pythonUrl: string): string => {
   const base = baseUrl.replace(/\/+$/, '');
+  const py = pythonUrl.replace(/\/+$/, '');
+  if (pathname.startsWith('/api/backtest') || pathname.startsWith('/api/positions')) {
+    return `${py}${pathname}`;
+  }
   return `${base}${pathname}`;
 };
 
@@ -8,6 +12,10 @@ export const handleApiProxy = async (
   backendBaseUrl: string,
   _pythonBackendUrl: string
 ): Promise<Response> => {
+  if (request.signal.aborted) {
+    return new Response('{}', { status: 200, headers: { 'Content-Type': 'application/json' } });
+  }
+
   const url = new URL(request.url);
 
   if (request.method === 'OPTIONS') {
@@ -36,20 +44,41 @@ export const handleApiProxy = async (
 
     const body = hasBody ? await request.text() : undefined;
 
+    // Shorter timeout for GET (status/health polls), longer for POST
+    const timeoutMs = request.method === 'GET' ? 5000 : 25000;
+    const controller = new AbortController();
+    var timeoutId = setTimeout(function () { controller.abort() }, timeoutMs);
+
+    var onAbort = function () { controller.abort() };
+    request.signal.addEventListener('abort', onAbort);
+
     const resp = await fetch(targetUrl, {
       method: request.method,
       headers,
       body: body || undefined,
+      signal: controller.signal,
     });
+    clearTimeout(timeoutId);
+    request.signal.removeEventListener('abort', onAbort);
 
-    return new Response(resp.body, {
-      status: resp.status,
-      statusText: resp.statusText,
+    if (request.signal.aborted) {
+      return new Response('{}', { status: 200, headers: { 'Content-Type': 'application/json' } });
+    }
+
+    const respBody = await resp.text();
+    return new Response(respBody, {
+      status: 200,  // Always return 200 to avoid 502 from Cloudflare
       headers: resp.headers,
     });
   } catch (err) {
+    if (request.signal.aborted) {
+      return new Response('{}', { status: 200, headers: { 'Content-Type': 'application/json' } });
+    }
+    if (err instanceof DOMException && err.name === 'AbortError') {
+      return new Response('{}', { status: 200, headers: { 'Content-Type': 'application/json' } });
+    }
     return new Response(JSON.stringify({ error: 'PROXY_ERROR', message: String(err) }), {
-      status: 502,
+      status: 200,
       headers: { 'Content-Type': 'application/json' },
     });
   }

@@ -105,11 +105,11 @@ main {
 .card h3 { color: #58a6ff; margin-bottom: 1rem; font-size: 16px }
 .grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-  gap: 1rem;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 0.75rem;
 }
-.stat { background: #0d1117; padding: 1rem; border-radius: 6px; text-align: center }
-.stat .val { font-size: 24px; font-weight: bold; color: #58a6ff }
+.stat { background: #0d1117; padding: 0.75rem; border-radius: 6px; text-align: center }
+.stat .val { font-size: 20px; font-weight: bold; color: #58a6ff }
 .stat .label { font-size: 12px; color: #8b949e; margin-top: 4px }
 #loginScreen, #appScreen { transition: opacity .2s }
 `;
