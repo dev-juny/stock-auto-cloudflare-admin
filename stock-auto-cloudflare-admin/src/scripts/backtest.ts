@@ -487,64 +487,70 @@ function renderPortfolio() {
   if (!portfolio || portfolio.length === 0) {
     if (window._portfolioBuilding === 'running') {
       container.innerHTML = '<div style="color:#8b949e;text-align:center;padding:2rem">포트폴리오 시뮬레이션을 생성 중입니다...</div>'
+    } else if (window._portfolioBuilding === 'failed') {
+      container.innerHTML = '<div style="color:#f85149;text-align:center;padding:2rem">포트폴리오 생성 실패</div>'
     } else {
       container.innerHTML = '<div style="color:#8b949e;text-align:center;padding:2rem">포트폴리오 데이터가 없습니다.</div>'
     }
     return
   }
 
-  var rows = portfolio.map(function (s) {
-    var pnlCls = s.pnl_pct >= 0 ? 'scan-positive' : 'scan-negative'
-    var holdingsHtml = (s.holdings || []).map(function (h) {
-      var cls = 'pos-hold'
-      if (h.status === '매수') cls = 'pos-buy'
-      else if (h.status === '매도') cls = 'pos-sell'
-      else if (h.status === '트레일링') cls = 'pos-trailing'
-      else if (h.status === 'BE') cls = 'pos-be'
-      var label = h.status === '매도' ? '매도가' : '현재가'
-      var price = h.current_price.toLocaleString()
-      var profitCls = h.profit_amt >= 0 ? 'scan-positive' : 'scan-negative'
-      var reasonStr = h.reason ? ' (' + h.reason + ')' : ''
-      return '<div class="portfolio-pos">' +
-        '<span class="' + cls + ' pos-ticker">' + h.ticker + '</span>' +
-        '<span class="pos-name">' + (h.name || '') + '</span>' +
-        '<span class="pos-sep">|</span>' +
-        '<span class="pos-label">진입</span><span class="pos-val">' + h.entry_price.toLocaleString() + '</span>' +
-        '<span class="pos-sep">|</span>' +
-        '<span class="pos-label">' + label + '</span><span class="pos-val">' + price + '</span>' +
-        '<span class="pos-sep">|</span>' +
-        '<span class="pos-label">' + (h.shares || 0) + '주</span>' +
-        '<span class="pos-sep">|</span>' +
-        '<span class="' + profitCls + '">' + h.profit_amt.toLocaleString() + '원 (' + (h.pnl_pct * 100).toFixed(2) + '%)</span>' +
-        '<span class="pos-sep">|</span>' +
-        '<span class="' + cls + '">' + h.status + reasonStr + '</span>' +
-        '</div>'
-    }).join('')
+  try {
+    var rows = portfolio.map(function (s) {
+      var pnlCls = s.pnl_pct >= 0 ? 'scan-positive' : 'scan-negative'
+      var holdingsHtml = (s.holdings || []).map(function (h) {
+        var cls = 'pos-hold'
+        if (h.status === '매수') cls = 'pos-buy'
+        else if (h.status === '매도') cls = 'pos-sell'
+        else if (h.status === '트레일링') cls = 'pos-trailing'
+        else if (h.status === 'BE') cls = 'pos-be'
+        var label = h.status === '매도' ? '매도가' : '현재가'
+        var price = (h.current_price || 0).toLocaleString()
+        var profitCls = h.profit_amt >= 0 ? 'scan-positive' : 'scan-negative'
+        var reasonStr = h.reason ? ' (' + h.reason + ')' : ''
+        return '<div class="portfolio-pos">' +
+          '<span class="' + cls + ' pos-ticker">' + (h.ticker || '') + '</span>' +
+          '<span class="pos-name">' + (h.name || '') + '</span>' +
+          '<span class="pos-sep">|</span>' +
+          '<span class="pos-label">진입</span><span class="pos-val">' + (h.entry_price || 0).toLocaleString() + '</span>' +
+          '<span class="pos-sep">|</span>' +
+          '<span class="pos-label">' + label + '</span><span class="pos-val">' + price + '</span>' +
+          '<span class="pos-sep">|</span>' +
+          '<span class="pos-label">' + (h.shares || 0) + '주</span>' +
+          '<span class="pos-sep">|</span>' +
+          '<span class="' + profitCls + '">' + (h.profit_amt || 0).toLocaleString() + '원 (' + ((h.pnl_pct || 0) * 100).toFixed(2) + '%)</span>' +
+          '<span class="pos-sep">|</span>' +
+          '<span class="' + cls + '">' + (h.status || '') + reasonStr + '</span>' +
+          '</div>'
+      }).join('')
 
-    return '<tr>' +
-      '<td>' + s.date + '</td>' +
-      '<td>' + (s.positions_count || 0) + '</td>' +
-      '<td>' + holdingsHtml + '</td>' +
-      '<td>' + s.cash.toLocaleString() + '</td>' +
-      '<td>' + s.total_value.toLocaleString() + '</td>' +
-      '<td class="' + pnlCls + '">' + (s.pnl_pct * 100).toFixed(2) + '%</td>' +
-      '<td class="' + pnlCls + '">' + s.pnl_amt.toLocaleString() + '</td>' +
-      '</tr>'
-  }).join('')
+      return '<tr>' +
+        '<td>' + (s.date || '') + '</td>' +
+        '<td>' + (s.positions_count || 0) + '</td>' +
+        '<td>' + holdingsHtml + '</td>' +
+        '<td>' + (s.cash || 0).toLocaleString() + '</td>' +
+        '<td>' + (s.total_value || 0).toLocaleString() + '</td>' +
+        '<td class="' + pnlCls + '">' + ((s.pnl_pct || 0) * 100).toFixed(2) + '%</td>' +
+        '<td class="' + pnlCls + '">' + (s.pnl_amt || 0).toLocaleString() + '</td>' +
+        '</tr>'
+    })
 
-  var last = portfolio[portfolio.length - 1]
-  container.innerHTML = [
-    '<div class="portfolio-summary">',
-      '<span class="ps-item">기준금액: <strong>' + ba.toLocaleString() + '원</strong></span>',
-      '<span class="ps-item">최종수익률: <strong style="color:' + (last.pnl_pct >= 0 ? '#3fb950' : '#f85149') + '">' + (last.pnl_pct * 100).toFixed(2) + '%</strong></span>',
-      '<span class="ps-item">최종수익금: <strong style="color:' + (last.pnl_amt >= 0 ? '#3fb950' : '#f85149') + '">' + last.pnl_amt.toLocaleString() + '원</strong></span>',
-      '<span class="ps-item">총거래일: <strong>' + portfolio.length + '일</strong></span>',
-    '</div>',
-    '<table class="portfolio-table">',
-      '<thead><tr><th>날짜</th><th>보유</th><th>보유종목</th><th>현금</th><th>총평가액</th><th>수익률</th><th>수익금</th></tr></thead>',
-      '<tbody>' + rows + '</tbody>',
-    '</table>',
-  ].join('')
+    var last = portfolio[portfolio.length - 1]
+    container.innerHTML = [
+      '<div class="portfolio-summary">',
+        '<span class="ps-item">기준금액: <strong>' + ba.toLocaleString() + '원</strong></span>',
+        '<span class="ps-item">최종수익률: <strong style="color:' + (last.pnl_pct >= 0 ? '#3fb950' : '#f85149') + '">' + ((last.pnl_pct || 0) * 100).toFixed(2) + '%</strong></span>',
+        '<span class="ps-item">최종수익금: <strong style="color:' + (last.pnl_amt >= 0 ? '#3fb950' : '#f85149') + '">' + (last.pnl_amt || 0).toLocaleString() + '원</strong></span>',
+        '<span class="ps-item">총거래일: <strong>' + portfolio.length + '일</strong></span>',
+      '</div>',
+      '<table class="portfolio-table">',
+        '<thead><tr><th>날짜</th><th>보유</th><th>보유종목</th><th>현금</th><th>총평가액</th><th>수익률</th><th>수익금</th></tr></thead>',
+        '<tbody>' + rows.join('') + '</tbody>',
+      '</table>',
+    ].join('')
+  } catch (e) {
+    container.innerHTML = '<div style="color:#f85149;text-align:center;padding:2rem">포트폴리오 렌더링 오류: ' + e.message + '</div>'
+  }
 }
 
 // ── Backtest detail view (TradingView chart modal) ──
@@ -1453,13 +1459,13 @@ document.addEventListener('click', function (e) {
     document.querySelectorAll('.results-tab').forEach(function (b) { b.classList.toggle('active', b === rtab) })
     document.querySelectorAll('.results-view').forEach(function (v) { v.classList.toggle('active', v.id === 'resultsView' + rtab.dataset.view.charAt(0).toUpperCase() + rtab.dataset.view.slice(1)) })
     if (rtab.dataset.view === 'portfolio') {
-      var pc = document.getElementById('portfolioContent')
-      if (pc && !pc.innerHTML.trim()) {
-        renderPortfolio()
-        if (!window._scanPortfolio || window._scanPortfolio.length === 0) {
-          if (window._lastScanId && window._portfolioBuilding !== 'running' && window._portfolioBuilding !== 'completed') {
-            buildPortfolio(window._lastScanId)
-          }
+      renderPortfolio()
+      if (!window._scanPortfolio || window._scanPortfolio.length === 0) {
+        if (window._lastScanId && window._portfolioBuilding !== 'running' && window._portfolioBuilding !== 'completed') {
+          buildPortfolio(window._lastScanId)
+        }
+        if (window._lastScanId && (window._portfolioBuilding === 'running' || window._portfolioBuilding === 'completed')) {
+          pollScanStatus(window._lastScanId)
         }
       }
     }

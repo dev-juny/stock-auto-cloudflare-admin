@@ -417,32 +417,42 @@ async def start_load_all_stock_data() -> dict:
                 print(f"[DATA-LOAD] Data up to date (last: {last_date})")
                 return
 
-            if last_date and (today - last_date).days <= 7:
-                print(f"[DATA-LOAD] Incremental update from {last_date}")
-                stats = await kospi_data.run_daily_update()
-                total_loaded = stats.get("updated", 0)
-                total_rows = stats.get("rows", 0)
-                kosdaq_loaded = 0
-                kosdaq_rows = 0
-            else:
-                print(f"[DATA-LOAD] Full load (last_date={last_date})")
+            all_tickers = await get_all_tickers()
+            sem = asyncio.Semaphore(5)
+
+            if not last_date:
+                print(f"[DATA-LOAD] First-time full load")
                 stats = await kospi_data.load_all_historical()
                 total_loaded = stats.get("success", 0)
                 total_rows = stats.get("rows", 0)
-
-                all_tickers = await get_all_tickers()
                 kosdaq_tickers = [t for t in all_tickers if t.get("market") == "KOSDAQ"]
-                sem = asyncio.Semaphore(5)
-                async def load_one(t_info):
+                async def load_one_full(t_info):
                     async with sem:
                         data = await fetch_stock_data(t_info["ticker"])
                         if data:
                             n = await kospi_data.upsert_prices(t_info["ticker"], data)
                             return n
                         return 0
-                results = await asyncio.gather(*[load_one(t) for t in kosdaq_tickers])
+                results = await asyncio.gather(*[load_one_full(t) for t in kosdaq_tickers])
                 kosdaq_loaded = sum(1 for r in results if r > 0)
                 kosdaq_rows = sum(results)
+            else:
+                print(f"[DATA-LOAD] Incremental update from {last_date}")
+                async def load_one_incr(t_info):
+                    async with sem:
+                        data = await fetch_stock_data(t_info["ticker"])
+                        if not data:
+                            return 0
+                        new_data = [c for c in data if datetime.strptime(str(c["time"]), "%Y-%m-%d").date() > last_date]
+                        if new_data:
+                            n = await kospi_data.upsert_prices(t_info["ticker"], new_data)
+                            return n
+                        return 0
+                results = await asyncio.gather(*[load_one_incr(t) for t in all_tickers])
+                total_loaded = sum(1 for r in results if r > 0)
+                total_rows = sum(results)
+                kosdaq_loaded = 0
+                kosdaq_rows = 0
 
             _load_status = {
                 "status": "completed",
