@@ -368,16 +368,13 @@ function renderScanResults(data) {
   renderStats(results)
   renderPage()
   renderPortfolio()
-  if (data.portfolio && data.portfolio.length > 0) {
-    updateStatsWithPortfolio(data.portfolio)
-  }
 }
 
 function updateStatsWithPortfolio(portfolio) {
   if (!portfolio || portfolio.length === 0) return
   var last = portfolio[portfolio.length - 1]
-  document.getElementById('statsTotalReturn').textContent = ((last.pnl_pct || 0) * 100).toFixed(2) + '%'
-  document.getElementById('statsTotalProfit').textContent = (last.pnl_amt || 0).toLocaleString() + '원'
+  document.getElementById('statsTotalReturn').innerHTML = ((last.pnl_pct || 0) * 100).toFixed(2) + '% <span class="stats-badge">포트폴리오</span>'
+  document.getElementById('statsTotalProfit').innerHTML = (last.pnl_amt || 0).toLocaleString() + '원 <span class="stats-badge">포트폴리오</span>'
 }
 
 function renderStats(results) {
@@ -394,7 +391,6 @@ function renderStats(results) {
   var winRate = total > 0 ? (wins.length / total * 100) : 0
   var avgWin = wins.length > 0 ? wins.reduce(function (s, r) { return s + r.pnl }, 0) / wins.length : 0
   var avgLoss = losses.length > 0 ? losses.reduce(function (s, r) { return s + r.pnl }, 0) / losses.length : 0
-  var totalPnl = results.reduce(function (s, r) { return s + r.pnl }, 0)
   var totalProfit = wins.reduce(function (s, r) { return s + r.pnl }, 0)
   var totalLoss = Math.abs(losses.reduce(function (s, r) { return s + r.pnl }, 0))
   var profitFactor = totalLoss > 0 ? (totalProfit / totalLoss) : (totalProfit > 0 ? Infinity : 0)
@@ -406,11 +402,20 @@ function renderStats(results) {
   document.getElementById('statsAvgWin').textContent = (avgWin * 100).toFixed(2) + '%'
   document.getElementById('statsAvgLoss').textContent = (avgLoss * 100).toFixed(2) + '%'
   document.getElementById('statsProfitFactor').textContent = profitFactor === Infinity ? '&infin;' : profitFactor.toFixed(2)
-  document.getElementById('statsTotalReturn').textContent = (totalPnl * 100).toFixed(2) + '%'
   document.getElementById('statsBestTrade').textContent = (bestPnl * 100).toFixed(2) + '%'
   document.getElementById('statsWorstTrade').textContent = (worstPnl * 100).toFixed(2) + '%'
-  document.getElementById('statsTotalProfit').textContent = (totalPnl * ba).toLocaleString() + '원'
   document.getElementById('statsBar').classList.remove('hidden')
+
+  var pf = window._scanPortfolio
+  if (pf && pf.length > 0) {
+    var last = pf[pf.length - 1]
+    document.getElementById('statsTotalReturn').innerHTML = ((last.pnl_pct || 0) * 100).toFixed(2) + '% <span class="stats-badge">포트폴리오</span>'
+    document.getElementById('statsTotalProfit').innerHTML = (last.pnl_amt || 0).toLocaleString() + '원 <span class="stats-badge">포트폴리오</span>'
+  } else {
+    var totalPnl = results.reduce(function (s, r) { return s + r.pnl }, 0)
+    document.getElementById('statsTotalReturn').textContent = (totalPnl * 100).toFixed(2) + '%'
+    document.getElementById('statsTotalProfit').textContent = (totalPnl * ba).toLocaleString() + '원'
+  }
   window._scanStats = {
     winRate: winRate / 100,
     avgWin: avgWin * ba,

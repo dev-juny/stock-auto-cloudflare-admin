@@ -330,6 +330,16 @@ export const backtestCss = `
   font-weight: 600;
   color: #c9d1d9;
 }
+.stats-badge {
+  font-size: 9px;
+  font-weight: 400;
+  color: #58a6ff;
+  background: rgba(88,166,255,0.12);
+  padding: 1px 5px;
+  border-radius: 3px;
+  vertical-align: middle;
+  margin-left: 2px;
+}
 
 /* detail modal */
 .detail-modal-box {
