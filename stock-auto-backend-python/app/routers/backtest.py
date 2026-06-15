@@ -636,15 +636,19 @@ async def _build_portfolio_timeline(results: list[dict], bmc: BMC, base_amt: flo
             await asyncio.sleep(0)
         events = by_date[date]
 
-        # Phase 1: Handle BUY signals (new position entries)
+        # Phase 1: Handle BUY signals (deduct cash, add positions)
         for ticker, sig, price, reason, is_trailing, is_be in events:
             if sig == "BUY" and ticker not in active and len(active) < max_pos:
                 shares = int(pos_size / price) if price > 0 else 0
                 if shares == 0:
                     continue
+                cost = shares * price
+                if cost > cash:
+                    continue
+                cash -= cost
                 active[ticker] = {"entry_price": price, "current_price": price, "shares": shares, "is_trailing": is_trailing, "is_be": is_be}
 
-        # Phase 2: Update active positions with current price/signal
+        # Phase 2: Update active positions with current price
         for ticker in list(active.keys()):
             for t2, sig, price, reason, is_trailing, is_be in events:
                 if t2 == ticker:
@@ -665,26 +669,28 @@ async def _build_portfolio_timeline(results: list[dict], bmc: BMC, base_amt: flo
                 label = "홀드"
             entry = info["entry_price"]
             curr = info["current_price"]
+            shares = info["shares"]
             pnl = (curr - entry) / entry if entry else 0
-            shares = info.get("shares", int(pos_size / entry) if entry > 0 else 0)
+            profit_amt = (curr - entry) * shares
             holdings.append({
                 "ticker": ticker, "name": names.get(ticker, ""),
                 "entry_price": entry, "shares": shares,
                 "current_price": curr, "status": label,
                 "reason": info.get("reason"), "pnl_pct": round(pnl, 6),
-                "profit_amt": round(pnl * pos_size, 2),
+                "profit_amt": round(profit_amt, 2),
             })
 
+        # Phase 3: Handle SELL signals (add proceeds to cash)
         for ticker in list(active.keys()):
             for t2, sig, price, reason, is_trailing, is_be in events:
                 if t2 == ticker and sig == "SELL":
                     info = active[ticker]
-                    pnl = (price - info["entry_price"]) / info["entry_price"]
-                    cash += pos_size * (1 + pnl)
+                    proceeds = price * info["shares"]
+                    cash += proceeds
                     del active[ticker]
                     break
 
-        equity = sum(h["pnl_pct"] * pos_size + pos_size for h in holdings if h["status"] != "매도")
+        equity = sum(h["current_price"] * h["shares"] for h in holdings if h["status"] != "매도")
         tv = cash + equity
         portfolio.append({
             "date": date, "holdings": holdings, "cash": round(cash, 2),
