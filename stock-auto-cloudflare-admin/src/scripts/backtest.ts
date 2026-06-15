@@ -157,6 +157,7 @@ var _scanPollTimer = null
 var _retryTimer = null
 var _lastScanConfig = null
 var _lastScanId = null
+try { var _savedId = localStorage.getItem('bt_last_scan_id'); if (_savedId) _lastScanId = _savedId } catch (e) {}
 var _scanCompleted = false
 
 var _pageSize = 50
@@ -264,6 +265,7 @@ function _doScan(startDate, endDate, config, baseAmt) {
         return
       }
       _lastScanId = data.scan_id
+      try { localStorage.setItem('bt_last_scan_id', data.scan_id) } catch (e) {}
       if (_scanPollTimer) clearTimeout(_scanPollTimer)
       startPolling(data.scan_id)
     })
@@ -287,6 +289,7 @@ function pollScanStatus(scanId) {
     .then(function (r) { return r.json() })
     .then(function (data) {
       if (!data || data.message === 'Scan not found' || !data.status) {
+        if (_lastScanId) { try { localStorage.removeItem('bt_last_scan_id') } catch (e) {}; _lastScanId = null }
         // Backend was restarted or proxy returned empty on timeout
         if (_scanPollTimer) clearTimeout(_scanPollTimer)
         _scanPollTimer = null
@@ -309,6 +312,7 @@ function pollScanStatus(scanId) {
           window._scanPortfolio = data.portfolio
           window._portfolioBuilding = data.portfolio_building
           renderPortfolio()
+          updateStatsWithPortfolio(data.portfolio)
           return
         }
         // First completion — render results and trigger portfolio build
@@ -364,6 +368,16 @@ function renderScanResults(data) {
   renderStats(results)
   renderPage()
   renderPortfolio()
+  if (data.portfolio && data.portfolio.length > 0) {
+    updateStatsWithPortfolio(data.portfolio)
+  }
+}
+
+function updateStatsWithPortfolio(portfolio) {
+  if (!portfolio || portfolio.length === 0) return
+  var last = portfolio[portfolio.length - 1]
+  document.getElementById('statsTotalReturn').textContent = ((last.pnl_pct || 0) * 100).toFixed(2) + '%'
+  document.getElementById('statsTotalProfit').textContent = (last.pnl_amt || 0).toLocaleString() + '원'
 }
 
 function renderStats(results) {
@@ -1461,10 +1475,7 @@ document.addEventListener('click', function (e) {
     if (rtab.dataset.view === 'portfolio') {
       renderPortfolio()
       if (!window._scanPortfolio || window._scanPortfolio.length === 0) {
-        if (window._lastScanId && window._portfolioBuilding !== 'running' && window._portfolioBuilding !== 'completed') {
-          buildPortfolio(window._lastScanId)
-        }
-        if (window._lastScanId && (window._portfolioBuilding === 'running' || window._portfolioBuilding === 'completed')) {
+        if (window._lastScanId) {
           pollScanStatus(window._lastScanId)
         }
       }

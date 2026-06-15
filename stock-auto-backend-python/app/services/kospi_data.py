@@ -145,7 +145,10 @@ async def get_last_trade_date() -> Optional[date]:
         return None
     rows = await execute_query("SELECT MAX(trade_date) FROM stock_daily_prices")
     if rows and rows[0][0]:
-        return rows[0][0]
+        val = rows[0][0]
+        if isinstance(val, datetime):
+            return val.date()
+        return val
     return None
 
 
