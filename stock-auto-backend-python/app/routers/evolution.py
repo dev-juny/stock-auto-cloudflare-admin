@@ -95,7 +95,7 @@ async def get_generation_history(generation_id: int) -> dict:
     from app.strategy_evolution.database import (
         get_generation_holdings, get_generation_trades, get_generation_contributions,
     )
-    gens = await get_generations()
+    gens = await get_orch().get_generations()
     gen_info = next((g for g in gens if g.generation == generation_id), None)
     if not gen_info:
         raise HTTPException(404, "Generation not found")
