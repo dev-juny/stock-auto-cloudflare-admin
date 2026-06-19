@@ -254,6 +254,68 @@ async def get_generations(limit: int = 20) -> list[GenerationSummary]:
     return result
 
 
+async def get_generation_strategies(generation: int) -> list[EvolutionStrategy]:
+    from .models import StrategyParams, StrategyIndicators
+    rows = await execute_query(
+        """SELECT sp.id, sp.name, sp.generation, sp.version, sp.parent_id,
+                  sp.params_json, sp.indicators_json, sp.is_alive, sp.is_elite,
+                  sp.created_at, sp.last_test_at,
+                  pf.total_return, pf.win_rate, pf.max_drawdown,
+                  pf.profit_factor, pf.total_trades, pf.fitness_score
+           FROM strategy_pool sp
+           LEFT JOIN (
+               SELECT strategy_id, total_return, win_rate, max_drawdown,
+                      profit_factor, total_trades, fitness_score,
+                      ROW_NUMBER() OVER (PARTITION BY strategy_id ORDER BY generation DESC) rn
+               FROM strategy_performance
+           ) pf ON pf.strategy_id = sp.id AND pf.rn = 1
+           WHERE sp.generation=:1
+           ORDER BY pf.fitness_score DESC NULLS LAST""",
+        [generation]
+    )
+    return [_row_to_strategy(r) for r in rows]
+
+
+async def compare_generations(gen_a: int, gen_b: int) -> dict:
+    strategies_a = await get_generation_strategies(gen_a)
+    strategies_b = await get_generation_strategies(gen_b)
+    ids_a = {s.id for s in strategies_a}
+    a_by_parent = {s.parent_id: s for s in strategies_a if s.parent_id}
+
+    new_entries = [s for s in strategies_b if s.parent_id and s.parent_id not in ids_a]
+    removed = [s for s in strategies_a if s.id not in {s2.parent_id for s2 in strategies_b if s2.parent_id}]
+    changed = []
+    for sb in strategies_b:
+        if sb.parent_id and sb.parent_id in ids_a:
+            sa = a_by_parent.get(sb.parent_id)
+            if sa:
+                changed.append({
+                    "strategy_id": sb.id,
+                    "name": sb.name,
+                    "return_change": round(sb.total_return - sa.total_return, 4),
+                    "winrate_change": round(sb.win_rate - sa.win_rate, 2),
+                    "fitness_change": round(sb.fitness_score - sa.fitness_score, 4),
+                })
+
+    def _summarize(ss: list[EvolutionStrategy]) -> dict:
+        tested = [s for s in ss if s.total_trades > 0]
+        return {
+            "count": len(ss),
+            "avg_return": round(sum(s.total_return for s in tested) / len(tested), 4) if tested else 0,
+            "avg_winrate": round(sum(s.win_rate for s in tested) / len(tested), 2) if tested else 0,
+            "avg_fitness": round(sum(s.fitness_score for s in tested) / len(tested), 4) if tested else 0,
+            "avg_mdd": round(sum(abs(s.max_drawdown) for s in tested) / len(tested), 4) if tested else 0,
+        }
+
+    return {
+        "gen_a": {"generation": gen_a, **_summarize(strategies_a)},
+        "gen_b": {"generation": gen_b, **_summarize(strategies_b)},
+        "new_entries": len(new_entries),
+        "removed": len(removed),
+        "changed": changed,
+    }
+
+
 async def get_evolution_status() -> EvolutionStatus:
     rows = await execute_query(
         "SELECT is_running, current_generation, total_generations, status, current_operation, progress_pct, last_run_at, next_scheduled_run FROM evolution_status ORDER BY updated_at DESC",

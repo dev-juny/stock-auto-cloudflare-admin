@@ -2,6 +2,12 @@ import { useState } from 'react'
 import { useAuth } from './hooks/useAuth'
 import { Login } from './pages/Login'
 import { Dashboard } from './pages/Dashboard'
+import { EvolutionPage } from './pages/Evolution'
+import PortfolioPage from './pages/PortfolioPage'
+import StrategiesPage from './pages/StrategiesPage'
+import LogsPage from './pages/LogsPage'
+import SettingsPage from './pages/SettingsPage'
+import SchedulerPage from './pages/scheduler/SchedulerPage'
 import { DashboardHeader } from './components/layout/DashboardHeader'
 import { BottomNavigation } from './components/layout/BottomNavigation'
 
@@ -29,26 +35,12 @@ export default function App() {
       <DashboardHeader />
       <main className="max-w-5xl mx-auto px-4 pt-4 pb-24">
         {activeTab === 'dashboard' && <Dashboard />}
-        {activeTab === 'portfolio' && (
-          <div className="flex items-center justify-center h-48 text-text-muted text-sm">
-            Portfolio view coming soon
-          </div>
-        )}
-        {activeTab === 'strategy' && (
-          <div className="flex items-center justify-center h-48 text-text-muted text-sm">
-            Strategy view coming soon
-          </div>
-        )}
-        {activeTab === 'logs' && (
-          <div className="flex items-center justify-center h-48 text-text-muted text-sm">
-            Logs view coming soon
-          </div>
-        )}
-        {activeTab === 'settings' && (
-          <div className="flex items-center justify-center h-48 text-text-muted text-sm">
-            Settings view coming soon
-          </div>
-        )}
+        {activeTab === 'portfolio' && <PortfolioPage />}
+        {activeTab === 'evolution' && <EvolutionPage />}
+        {activeTab === 'strategy' && <StrategiesPage />}
+        {activeTab === 'logs' && <LogsPage />}
+        {activeTab === 'settings' && <SettingsPage />}
+        {activeTab === 'scheduler' && <SchedulerPage />}
       </main>
       <BottomNavigation active={activeTab} onChange={setActiveTab} />
     </div>

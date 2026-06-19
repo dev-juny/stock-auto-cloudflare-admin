@@ -3,9 +3,10 @@ import type { GenerationSummary } from '../../utils/api'
 
 interface Props {
   generations: GenerationSummary[]
+  onGenClick?: (gen: number) => void
 }
 
-export function EvolutionTimeline({ generations }: Props) {
+export function EvolutionTimeline({ generations, onGenClick }: Props) {
   if (!generations || generations.length === 0) {
     return (
       <div className="bg-surface-card rounded-2xl p-6 border border-surface-border">
@@ -26,7 +27,11 @@ export function EvolutionTimeline({ generations }: Props) {
       </div>
       <div className="divide-y divide-surface-border">
         {sorted.map((g, idx) => (
-          <div key={`${g.generation}-${idx}`} className="px-4 py-3">
+          <div
+            key={`${g.generation}-${idx}`}
+            className="px-4 py-3 cursor-pointer hover:bg-surface/50 transition-colors"
+            onClick={() => onGenClick?.(g.generation)}
+          >
             <div className="flex items-center gap-2 mb-1.5">
               <div className="flex items-center justify-center w-6 h-6 rounded-full bg-primary/10 text-primary text-[10px] font-bold">
                 {g.generation}

@@ -53,12 +53,36 @@ async def get_portfolio_performance():
 
 
 @router.get("/strategies")
-async def list_strategies(source: Optional[str] = Query(None)):
+async def list_strategies(
+    source: Optional[str] = Query(None),
+    offset: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=200),
+    sort_by: str = Query("fitness_score"),
+    sort_dir: str = Query("desc", regex="^(asc|desc)$"),
+    search: str = Query(""),
+    is_active: Optional[bool] = Query(None),
+    generation: Optional[int] = Query(None),
+    min_return: Optional[float] = Query(None),
+    max_return: Optional[float] = Query(None),
+    min_winrate: Optional[float] = Query(None),
+    max_winrate: Optional[float] = Query(None),
+    max_mdd: Optional[float] = Query(None),
+):
     if source == "evolution":
         strategies = await get_strategies()
         return [s.model_dump() for s in strategies]
-    registry = await get_strategy_registry()
-    return registry
+    filters = {k: v for k, v in {
+        "is_active": is_active, "generation": generation,
+        "min_return": min_return, "max_return": max_return,
+        "min_winrate": min_winrate, "max_winrate": max_winrate,
+        "max_mdd": max_mdd,
+    }.items() if v is not None}
+    result = await get_strategy_registry(
+        offset=offset, limit=limit,
+        sort_by=sort_by, sort_dir=sort_dir,
+        search=search, filters=filters,
+    )
+    return result
 
 
 @router.post("/strategies")

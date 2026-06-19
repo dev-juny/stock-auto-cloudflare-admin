@@ -119,7 +119,8 @@ async def _parse_naver_lines(body: str) -> list[dict[str, Any]] | None:
     """Parse Naver API response line by line, yielding every 100 lines."""
     if not body.startswith("[["):
         return None
-    lines = body.strip("[]\n").split("],\n[")
+    import re
+    lines = re.split(r'\],\s*\n\s*\[', body.strip("[]\n"))
     result = []
     for idx, line in enumerate(lines):
         line = line.strip("[]")

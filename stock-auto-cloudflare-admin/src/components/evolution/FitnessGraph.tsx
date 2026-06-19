@@ -3,9 +3,10 @@ import type { GenerationSummary } from '../../utils/api'
 
 interface Props {
   generations: GenerationSummary[]
+  onGenClick?: (gen: number) => void
 }
 
-export function FitnessGraph({ generations }: Props) {
+export function FitnessGraph({ generations, onGenClick }: Props) {
   if (!generations || generations.length === 0) {
     return (
       <div className="bg-surface-card rounded-2xl p-6 border border-surface-border">
@@ -35,13 +36,14 @@ export function FitnessGraph({ generations }: Props) {
             {sorted.map((g, idx) => (
               <div
                 key={`${g.generation}-${idx}`}
-                className="flex-1 rounded-t-sm transition-all"
+                className="flex-1 rounded-t-sm transition-all cursor-pointer hover:opacity-100"
                 style={{
                   height: `${(g.best_fitness / maxFitness) * 100}%`,
                   backgroundColor: g.best_fitness >= 0 ? 'rgb(34 197 94)' : 'rgb(239 68 68)',
                   opacity: 0.7,
                 }}
                 title={`Gen ${g.generation}: ${g.best_fitness.toFixed(2)}`}
+                onClick={() => onGenClick?.(g.generation)}
               />
             ))}
           </div>

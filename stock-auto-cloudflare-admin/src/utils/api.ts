@@ -41,6 +41,11 @@ export const api = {
       method: 'POST',
       body: body ? JSON.stringify(body) : undefined,
     }),
+  patch: <T>(path: string, body?: unknown) =>
+    request<T>(path, {
+      method: 'PATCH',
+      body: body ? JSON.stringify(body) : undefined,
+    }),
   delete: <T>(path: string) => request<T>(path, { method: 'DELETE' }),
 }
 
@@ -129,4 +134,144 @@ export interface PositionEntry {
   pnl_pct: number
   pnl_amount: number
   entered_at: string
+}
+
+export interface StrategyParams {
+  entry_type: string
+  entry_trigger: string
+  min_volume: number
+  max_volatility: number
+  fixed_take_profit_pct: number
+  break_even_activation_pct: number
+  trailing_activation_pct: number
+  trailing_stop_pct: number
+  stop_loss_pct: number
+  stall_exit_days: number
+  max_concurrent_positions: number
+  ranking_candidate_limit: number
+}
+
+export interface StrategyIndicators {
+  use_volume_filter: boolean
+  use_volatility_filter: boolean
+  use_momentum: boolean
+  use_breakout: boolean
+  use_pullback: boolean
+  momentum_period: number
+  breakout_period: number
+  pullback_threshold: number
+}
+
+export interface EvolutionStrategy {
+  id: number
+  name: string
+  generation: number
+  version: number
+  parent_id: number | null
+  params: StrategyParams
+  indicators: StrategyIndicators
+  is_alive: boolean
+  is_elite: boolean
+  fitness_score: number
+  total_return: number
+  win_rate: number
+  max_drawdown: number
+  profit_factor: number
+  total_trades: number
+  tags: string[]
+  created_at: string
+  last_test_at: string | null
+}
+
+export interface FitnessScore {
+  strategy_id: number
+  generation: number
+  total_return: number
+  win_rate: number
+  max_drawdown: number
+  profit_factor: number
+  total_trades: number
+  fitness: number
+  calculated_at: string
+}
+
+export interface GenerationSummary {
+  generation: number
+  population_size: number
+  elite_count: number
+  avg_fitness: number
+  best_fitness: number
+  avg_return: number
+  avg_winrate: number
+  avg_mdd: number
+  mutation_count: number
+  crossover_count: number
+  created_at: string
+  created_at_kst?: string
+}
+
+export interface EvolutionStatus {
+  is_running: boolean
+  current_generation: number
+  total_generations: number
+  status: string
+  current_operation: string
+  progress_pct: number
+  last_run_at: string | null
+  last_run_at_kst?: string | null
+  next_scheduled_run: string | null
+  next_scheduled_run_kst?: string | null
+  active_strategies: number
+}
+
+export interface PaginatedResponse<T> {
+  items: T[]
+  total: number
+  offset: number
+  limit: number
+}
+
+export interface RegistryStrategy {
+  id: number
+  strategy_id: number | null
+  name: string
+  entry_type: string
+  generation: number
+  version: number
+  is_active: boolean
+  is_elite: boolean
+  allocation_pct: number
+  total_return: number
+  win_rate: number
+  max_drawdown: number
+  profit_factor: number
+  total_trades: number
+  fitness_score: number
+  registered_at: string
+}
+
+export interface GenerationCompareResult {
+  gen_a: { generation: number; count: number; avg_return: number; avg_winrate: number; avg_fitness: number; avg_mdd: number }
+  gen_b: { generation: number; count: number; avg_return: number; avg_winrate: number; avg_fitness: number; avg_mdd: number }
+  new_entries: number
+  removed: number
+  changed: Array<{ strategy_id: number; name: string; return_change: number; winrate_change: number; fitness_change: number }>
+}
+
+export interface EvolutionConfig {
+  population_size: number
+  elite_ratio: number
+  mutation_rate: number
+  crossover_rate: number
+  tournament_size: number
+  max_generations: number
+  fitness_return_weight: number
+  fitness_winrate_weight: number
+  fitness_mdd_penalty: number
+  min_generation_interval_hours: number
+  elite_preserve_count: number
+  evolution_enabled: boolean
+  mdd_threshold: number
+  winrate_threshold: number
+  return_threshold: number
 }

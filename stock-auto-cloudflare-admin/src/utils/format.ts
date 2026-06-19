@@ -20,11 +20,15 @@ export function formatNumber(n: number | string): string {
 export function formatTime(iso: string): string {
   if (!iso) return ''
   const d = new Date(iso)
-  const month = String(d.getMonth() + 1).padStart(2, '0')
-  const day = String(d.getDate()).padStart(2, '0')
-  const hour = String(d.getHours()).padStart(2, '0')
-  const min = String(d.getMinutes()).padStart(2, '0')
-  return `${month}/${day} ${hour}:${min}`
+  const kst = new Intl.DateTimeFormat('ko-KR', {
+    timeZone: 'Asia/Seoul',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).format(d)
+  return kst
 }
 
 export function formatUptime(s: number): string {

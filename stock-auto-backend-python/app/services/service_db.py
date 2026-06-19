@@ -96,21 +96,86 @@ async def save_portfolio_snapshot(data: dict):
     )
 
 
-async def get_strategy_registry() -> list[dict]:
-    rows = await execute_query(
-        """SELECT id, strategy_id, name, entry_type, generation, version, is_active, is_elite,
-                  allocation_pct, total_return, win_rate, max_drawdown, profit_factor, total_trades, fitness_score, registered_at
-           FROM strategy_registry ORDER BY is_active DESC, fitness_score DESC NULLS LAST""",
-        None
-    )
-    return [
-        {"id": r[0], "strategy_id": r[1], "name": r[2] or '', "entry_type": r[3] or 'momentum',
-         "generation": r[4] or 1, "version": r[5] or 1, "is_active": r[6] == 'Y', "is_elite": r[7] == 'Y',
-         "allocation_pct": r[8] or 0, "total_return": r[9] or 0, "win_rate": r[10] or 0,
-         "max_drawdown": r[11] or 0, "profit_factor": r[12] or 0, "total_trades": r[13] or 0,
-         "fitness_score": r[14] or 0, "registered_at": str(r[15]) if r[15] else ''}
+SORTABLE_COLUMNS = {
+    "generation": "generation",
+    "win_rate": "win_rate",
+    "total_return": "total_return",
+    "fitness_score": "fitness_score",
+    "max_drawdown": "max_drawdown",
+    "name": "name",
+    "id": "id",
+    "registered_at": "registered_at",
+}
+
+
+async def get_strategy_registry(
+    offset: int = 0,
+    limit: int = 50,
+    sort_by: str = "fitness_score",
+    sort_dir: str = "desc",
+    search: str = "",
+    filters: Optional[dict] = None,
+) -> dict:
+    sort_col = SORTABLE_COLUMNS.get(sort_by, "fitness_score")
+    direction = "DESC" if sort_dir.lower() == "desc" else "ASC"
+    where_clauses = []
+    binds = []
+
+    if search:
+        where_clauses.append("(LOWER(name) LIKE :search OR LOWER(entry_type) LIKE :search OR TO_CHAR(id) LIKE :search_param)")
+        binds.append(f"%{search.lower()}%")
+        binds.append(f"%{search.lower()}%")
+        binds.append(f"%{search}%")
+
+    filters = filters or {}
+    if filters.get("is_active") is not None:
+        where_clauses.append("is_active=:is_active")
+        binds.append('Y' if filters['is_active'] else 'N')
+    if filters.get("generation"):
+        where_clauses.append("generation=:gen")
+        binds.append(int(filters['generation']))
+    if filters.get("min_return") is not None:
+        where_clauses.append("total_return>=:min_ret")
+        binds.append(float(filters['min_return']))
+    if filters.get("max_return") is not None:
+        where_clauses.append("total_return<=:max_ret")
+        binds.append(float(filters['max_return']))
+    if filters.get("min_winrate") is not None:
+        where_clauses.append("win_rate>=:min_wr")
+        binds.append(float(filters['min_winrate']))
+    if filters.get("max_winrate") is not None:
+        where_clauses.append("win_rate<=:max_wr")
+        binds.append(float(filters['max_winrate']))
+    if filters.get("max_mdd") is not None:
+        where_clauses.append("max_drawdown<=:max_mdd")
+        binds.append(float(filters['max_mdd']))
+
+    where_sql = (" WHERE " + " AND ".join(where_clauses)) if where_clauses else ""
+
+    count_sql = f"SELECT COUNT(*) FROM strategy_registry{where_sql}"
+    count_rows = await execute_query(count_sql, binds if binds else None)
+    total = count_rows[0][0] if count_rows else 0
+
+    data_sql = f"""SELECT id, strategy_id, name, entry_type, generation, version,
+                          is_active, is_elite, allocation_pct, total_return, win_rate,
+                          max_drawdown, profit_factor, total_trades, fitness_score, registered_at
+                   FROM strategy_registry{where_sql}
+                   ORDER BY {sort_col} {direction}
+                   OFFSET :offset ROWS FETCH NEXT :limit ROWS ONLY"""
+    data_binds = (binds if binds else []) + [offset, limit]
+    rows = await execute_query(data_sql, data_binds)
+
+    items = [
+        {"id": r[0], "strategy_id": r[1], "name": r[2] or '', "entry_type": r[3] or '',
+         "generation": r[4] or 0, "version": r[5] or 0, "is_active": r[6] == 'Y',
+         "is_elite": r[7] == 'Y', "allocation_pct": r[8] or 0,
+         "total_return": r[9] or 0, "win_rate": r[10] or 0,
+         "max_drawdown": r[11] or 0, "profit_factor": r[12] or 0,
+         "total_trades": r[13] or 0, "fitness_score": r[14] or 0,
+         "registered_at": r[15].isoformat() if r[15] and hasattr(r[15], 'isoformat') else (str(r[15]) if r[15] else '')}
         for r in rows
     ]
+    return {"items": items, "total": total, "offset": offset, "limit": limit}
 
 
 async def register_strategy(data: dict) -> int:
@@ -177,6 +242,7 @@ async def get_settings() -> dict:
     defaults = {
         'backtest_interval': '1h', 'evolution_enabled': True,
         'population_size': 50, 'mutation_rate': 0.3, 'crossover_rate': 0.4,
+        'elite_ratio': 0.2, 'tournament_size': 5, 'max_generations': 100,
         'fitness_return_weight': 0.5, 'fitness_winrate_weight': 0.3,
         'fitness_mdd_penalty': 0.2, 'mdd_threshold': 10,
         'winrate_threshold': 45, 'return_threshold': 0,
@@ -185,6 +251,12 @@ async def get_settings() -> dict:
         if k not in result:
             result[k] = v
     return result
+
+
+async def load_evolution_config():
+    from app.strategy_evolution.models import EvolutionConfig
+    settings = await get_settings()
+    return EvolutionConfig.from_settings_dict(settings)
 
 
 async def update_setting(key: str, value, typ: str = 'string'):

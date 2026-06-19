@@ -191,6 +191,8 @@ async def _ensure_tables() -> None:
         print("[INFO] All tables ensured")
     finally:
         conn.close()
+    from app.services.service_db import ensure_service_tables
+    await ensure_service_tables()
 
 
 def _convert_lobs(row: tuple) -> tuple:
