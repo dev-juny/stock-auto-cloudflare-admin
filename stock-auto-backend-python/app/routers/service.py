@@ -58,7 +58,7 @@ async def list_strategies(
     offset: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=200),
     sort_by: str = Query("fitness_score"),
-    sort_dir: str = Query("desc", regex="^(asc|desc)$"),
+    sort_dir: str = Query("desc", pattern="^(asc|desc)$"),
     search: str = Query(""),
     is_active: Optional[bool] = Query(None),
     generation: Optional[int] = Query(None),
