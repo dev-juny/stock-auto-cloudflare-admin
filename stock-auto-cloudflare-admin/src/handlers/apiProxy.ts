@@ -44,8 +44,7 @@ export const handleApiProxy = async (
 
     const body = hasBody ? await request.text() : undefined;
 
-    // Shorter timeout for GET (status/health polls), longer for POST
-    const timeoutMs = request.method === 'GET' ? 5000 : 25000;
+    const timeoutMs = request.method === 'GET' ? 30000 : 60000;
     const controller = new AbortController();
     var timeoutId = setTimeout(function () { controller.abort() }, timeoutMs);
 

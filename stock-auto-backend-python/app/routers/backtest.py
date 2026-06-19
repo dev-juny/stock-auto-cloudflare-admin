@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 import asyncio
-import gc
+import concurrent.futures
+from collections import deque
 import json
 import logging
 import sys
@@ -36,7 +37,23 @@ router = APIRouter(prefix="/api/backtest", tags=["backtest"])
 
 _scan_states: dict[str, dict] = {}
 _scan_tasks: dict[str, asyncio.Task] = {}
+_scan_candle_cache: dict[str, dict[str, list[dict]]] = {}
+_scan_cancel_flags: dict[str, bool] = {}
 _logger = logging.getLogger("backtest")
+
+_process_pool: concurrent.futures.ProcessPoolExecutor | None = None
+
+def _get_process_pool() -> concurrent.futures.ProcessPoolExecutor:
+    global _process_pool
+    if _process_pool is None:
+        _process_pool = concurrent.futures.ProcessPoolExecutor(max_workers=2)
+    return _process_pool
+
+
+def _calc_pnl(entry_price: float, exit_price: float, bmc: BMC) -> float:
+    entry_cost = entry_price * (1 + bmc.commission + bmc.slippage)
+    exit_proceeds = exit_price * (1 - bmc.commission - bmc.tax - bmc.slippage)
+    return (exit_proceeds - entry_cost) / entry_cost
 
 
 def _to_bmc(cfg) -> BMC:
@@ -46,17 +63,25 @@ def _to_bmc(cfg) -> BMC:
         trailing_activation_pct=cfg.trailingActivationPct,
         trailing_stop_pct=cfg.trailingStopPct,
         stall_exit_days=cfg.stallExitDays,
+        stop_loss_pct=getattr(cfg, "stopLossPct", 0.0),
         min_volume=cfg.minVolume,
         max_volatility=cfg.maxVolatility,
         ranking_candidate_limit=cfg.rankingCandidateLimit,
         max_concurrent_positions=cfg.maxConcurrentPositions,
+        entry_type=getattr(cfg, "entryType", "momentum"),
+        entry_trigger=getattr(cfg, "entryTrigger", "next_close"),
+        entry_conditions=getattr(cfg, "entryConditions", None),
+        commission=getattr(cfg, "commission", 0.0002),
+        tax=getattr(cfg, "tax", 0.0015),
+        slippage=getattr(cfg, "slippage", 0.001),
     )
 
 
-def _precompute_rolling(candles: list[dict], window: int = 20) -> tuple[list[float | None], list[float | None]]:
+def _precompute_rolling(candles: list[dict], window: int = 20) -> tuple[list[float | None], list[float | None], list[float], list[float | None], list[float | None]]:
     n = len(candles)
     volumes = [c.get("volume", 0) or 0 for c in candles]
     volats = []
+    closes = [float(c.get("close", 0) or 0) for c in candles]
     for c in candles:
         h = c.get("high", 0) or 0
         l = c.get("low", 0) or 0
@@ -64,21 +89,44 @@ def _precompute_rolling(candles: list[dict], window: int = 20) -> tuple[list[flo
         volats.append((h - l) / cl if cl > 0 else 0)
     rv: list[float | None] = [None] * n
     rve: list[float | None] = [None] * n
+    rmax: list[float | None] = [None] * n
+    rmin: list[float | None] = [None] * n
     if n >= window:
         v_sum = sum(volumes[:window])
         ve_sum = sum(volats[:window])
-        rv[window - 1] = v_sum / window
-        rve[window - 1] = ve_sum / window
-        for i in range(window, n):
-            v_sum += volumes[i] - volumes[i - window]
-            ve_sum += volats[i] - volats[i - window]
-            rv[i] = v_sum / window
-            rve[i] = ve_sum / window
-    return rv, rve
+        # rolling max/min close using deque
+        max_dq: deque = deque()
+        min_dq: deque = deque()
+        for i in range(n):
+            while max_dq and closes[max_dq[-1]] <= closes[i]:
+                max_dq.pop()
+            max_dq.append(i)
+            if max_dq[0] <= i - window:
+                max_dq.popleft()
+            while min_dq and closes[min_dq[-1]] >= closes[i]:
+                min_dq.pop()
+            min_dq.append(i)
+            if min_dq[0] <= i - window:
+                min_dq.popleft()
+            if i >= window - 1:
+                rmax[i] = closes[max_dq[0]]
+                rmin[i] = closes[min_dq[0]]
+            if i >= window:
+                v_sum += volumes[i] - volumes[i - window]
+                ve_sum += volats[i] - volats[i - window]
+                rv[i] = v_sum / window
+                rve[i] = ve_sum / window
+            elif i == window - 1:
+                rv[i] = v_sum / window
+                rve[i] = ve_sum / window
+    return rv, rve, closes, rmax, rmin
 
 
 def _check_entry_conditions(
-    rv: list[float | None], rve: list[float | None], i: int, bmc: BMC
+    rv: list[float | None], rve: list[float | None], i: int, bmc: BMC,
+    closes: list[float] | None = None,
+    rmax: list[float | None] | None = None,
+    rmin: list[float | None] | None = None,
 ) -> bool:
     avg_vol = rv[i]
     avg_volat = rve[i]
@@ -88,49 +136,93 @@ def _check_entry_conditions(
         return False
     if bmc.max_volatility < 1.0 and avg_volat is not None and avg_volat > bmc.max_volatility:
         return False
+    if bmc.entry_type == "hybrid":
+        return True
+    if closes and i >= 5 and bmc.entry_type == "momentum":
+        if closes[i] <= closes[i - 5]:
+            return False
+        return True
+    if bmc.entry_type == "breakout" and rmax and rmax[i] is not None:
+        if closes[i] < rmax[i]:
+            return False
+        return True
+    if bmc.entry_type == "pullback" and rmax and rmin and rmax[i] is not None and rmin[i] is not None:
+        mid = (rmax[i] + rmin[i]) / 2
+        if closes[i] >= rmax[i] * 0.98:
+            return False
+        if closes[i] <= mid:
+            return False
+        return True
     return True
+
+
+def _resolve_entry_price(
+    entry: dict, data: list[dict], i: int, bmc: BMC,
+    rmax: list[float | None] | None = None,
+) -> tuple[int, float]:
+    et = bmc.entry_trigger
+    if et == "next_close":
+        return i, entry["close"]
+    if et == "next_open":
+        if i + 1 < len(data):
+            return i + 1, data[i + 1]["open"]
+        return i, entry["close"]
+    if et == "intraday":
+        return i, (entry["open"] + entry["high"] + entry["low"] + entry["close"]) / 4.0
+    if et == "breakout_confirm":
+        if i + 1 >= len(data):
+            return i + 1, 0  # signal to skip (i advances past end)
+        ref = rmax[i] if (rmax and rmax[i] is not None) else entry["close"]
+        if data[i + 1]["close"] >= ref:
+            return i + 1, data[i + 1]["close"]
+        return i + 1, 0  # confirmation failed
+    return i, entry["close"]
 
 
 async def _run_on_data(ticker: str, data: list[dict], bmc: BMC) -> list[dict] | None:
     if len(data) < 20:
         return None
-    use_filter = bmc.min_volume > 0 or bmc.max_volatility < 1.0
-    if use_filter:
-        rv, rve = _precompute_rolling(data)
+    need_roll = bmc.min_volume > 0 or bmc.max_volatility < 1.0 or bmc.entry_type not in ("", "hybrid") or bmc.entry_trigger == "breakout_confirm"
+    if need_roll:
+        rv, rve, closes, rmax, rmin = _precompute_rolling(data)
     results: list[dict] = []
     i = 0
-    min_gap = 5  # minimum days between exit and re-entry
+    min_gap = 5
     while i < len(data):
         if len(data) - i < 20:
             break
-        # Periodically yield to event loop for health checks (every ~20 candles)
         if i % 20 == 0:
             await asyncio.sleep(0)
-        if use_filter and not _check_entry_conditions(rv, rve, i, bmc):
+        if need_roll and not _check_entry_conditions(rv, rve, i, bmc, closes, rmax, rmin):
             i += 1
             continue
         entry = data[i]
+        entry_idx, entry_price = _resolve_entry_price(entry, data, i, bmc, rmax if need_roll else None)
+        if entry_price == 0:
+            i = entry_idx
+            continue
+        entry = data[entry_idx]
         state = PositionState(
             ticker=ticker,
             entry_date=entry["time"],
-            entry_price=entry["close"],
+            entry_price=entry_price,
             quantity=1,
-            highest_price_since_entry=entry["close"],
+            highest_price_since_entry=entry_price,
             config=bmc,
         )
         sold = False
-        for j in range(i + 1, len(data)):
+        for j in range(entry_idx + 1, len(data)):
             c = data[j]
             sig, reason = state.update_and_check_signal(c["close"])
             if sig == "SELL":
                 results.append({
                     "ticker": ticker,
                     "entry_date": entry["time"],
-                    "entry_price": entry["close"],
+                    "entry_price": entry_price,
                     "exit_date": c["time"],
                     "exit_reason": reason,
                     "exit_price": c["close"],
-                    "pnl": (c["close"] - entry["close"]) / entry["close"],
+                    "pnl": _calc_pnl(entry_price, c["close"], bmc),
                     "holding_days": state.holding_days,
                 })
                 i = j + min_gap
@@ -141,11 +233,74 @@ async def _run_on_data(ticker: str, data: list[dict], bmc: BMC) -> list[dict] | 
             results.append({
                 "ticker": ticker,
                 "entry_date": entry["time"],
-                "entry_price": entry["close"],
+                "entry_price": entry_price,
                 "exit_date": None,
                 "exit_reason": None,
                 "exit_price": last["close"],
-                "pnl": (last["close"] - entry["close"]) / entry["close"],
+                "pnl": _calc_pnl(entry_price, last["close"], bmc),
+                "holding_days": state.holding_days,
+            })
+            break
+    return results if results else None
+
+
+def _run_on_data_sync(ticker: str, data: list[dict], bmc: BMC) -> list[dict] | None:
+    if len(data) < 20:
+        return None
+    need_roll = bmc.min_volume > 0 or bmc.max_volatility < 1.0 or bmc.entry_type not in ("", "hybrid") or bmc.entry_trigger == "breakout_confirm"
+    if need_roll:
+        rv, rve, closes, rmax, rmin = _precompute_rolling(data)
+    results: list[dict] = []
+    i = 0
+    min_gap = 5
+    while i < len(data):
+        if len(data) - i < 20:
+            break
+        if need_roll and not _check_entry_conditions(rv, rve, i, bmc, closes, rmax, rmin):
+            i += 1
+            continue
+        entry = data[i]
+        entry_idx, entry_price = _resolve_entry_price(entry, data, i, bmc, rmax if need_roll else None)
+        if entry_price == 0:
+            i = entry_idx
+            continue
+        entry = data[entry_idx]
+        state = PositionState(
+            ticker=ticker,
+            entry_date=entry["time"],
+            entry_price=entry_price,
+            quantity=1,
+            highest_price_since_entry=entry_price,
+            config=bmc,
+        )
+        sold = False
+        for j in range(entry_idx + 1, len(data)):
+            c = data[j]
+            sig, reason = state.update_and_check_signal(c["close"])
+            if sig == "SELL":
+                results.append({
+                    "ticker": ticker,
+                    "entry_date": entry["time"],
+                    "entry_price": entry_price,
+                    "exit_date": c["time"],
+                    "exit_reason": reason,
+                    "exit_price": c["close"],
+                    "pnl": _calc_pnl(entry_price, c["close"], bmc),
+                    "holding_days": state.holding_days,
+                })
+                i = j + min_gap
+                sold = True
+                break
+        if not sold:
+            last = data[-1]
+            results.append({
+                "ticker": ticker,
+                "entry_date": entry["time"],
+                "entry_price": entry_price,
+                "exit_date": None,
+                "exit_reason": None,
+                "exit_price": last["close"],
+                "pnl": _calc_pnl(entry_price, last["close"], bmc),
                 "holding_days": state.holding_days,
             })
             break
@@ -182,6 +337,8 @@ async def run_backtest(req: BacktestRequest) -> BacktestResponse:
         reason = None
         if exit_day is None:
             sig, reason = state.update_and_check_signal(price)
+            if sig == 'HOLD' and reason == 'trailing':
+                sig = 'HOLD(트레일링)'
             if sig == "SELL":
                 exit_day = i
                 exit_reason = reason
@@ -339,6 +496,7 @@ async def get_scan_status(scan_id: str) -> dict:
         "message": state.get("message", ""),
         "portfolio": state.get("portfolio"),
         "portfolio_building": state.get("portfolio_building"),
+        "portfolio_trade_stats": state.get("portfolio_trade_stats"),
     }
 
 
@@ -349,7 +507,7 @@ async def build_scan_portfolio(scan_id: str) -> dict:
         return {"status": "failed", "message": "Scan not found"}
     if state.get("status") != "completed":
         return {"status": "failed", "message": "Scan not completed yet"}
-    if state.get("portfolio"):
+    if state.get("portfolio") is not None:
         return {"status": "completed", "message": "Portfolio already built"}
     if state.get("portfolio_building") == "running":
         return {"status": "running", "message": "Portfolio is being built"}
@@ -369,12 +527,18 @@ async def build_scan_portfolio(scan_id: str) -> dict:
     async def _build():
         try:
             state["portfolio_building"] = "running"
-            portfolio = await _build_portfolio_timeline(results, bmc, b_amt, m_pos)
+            candle_cache = _scan_candle_cache.pop(scan_id, None)
+            portfolio, trade_stats = await _build_portfolio_timeline(results, bmc, b_amt, m_pos, candle_cache)
             state["portfolio"] = portfolio
+            state["portfolio_trade_stats"] = trade_stats
             state["portfolio_building"] = "completed"
+            _logger.warning("[PORTFOLIO] Built %d entries for %d results (cache=%s)", len(portfolio), len(results), "hit" if candle_cache else "miss")
         except Exception as e:
+            import traceback
+            _logger.warning("[PORTFOLIO] Build failed: %s\n%s", e, traceback.format_exc())
             state["portfolio_building"] = "failed"
             state["message"] = f"Portfolio build failed: {e}"
+            _scan_candle_cache.pop(scan_id, None)
 
     task = asyncio.create_task(_build())
     return {"status": "running", "message": "Portfolio building started"}
@@ -418,7 +582,7 @@ async def start_load_all_stock_data() -> dict:
                 return
 
             all_tickers = await get_all_tickers()
-            sem = asyncio.Semaphore(5)
+            sem = asyncio.Semaphore(3)
 
             if not last_date:
                 print(f"[DATA-LOAD] First-time full load")
@@ -496,8 +660,8 @@ async def load_data_status() -> dict:
 async def load_data_logs() -> list[dict]:
     rows = await execute_query(
         "SELECT id, status, kospi_loaded, kosdaq_loaded, total_rows, error_msg, "
-        "TO_CHAR(started_at, 'YYYY-MM-DD HH24:MI:SS'), "
-        "TO_CHAR(finished_at, 'YYYY-MM-DD HH24:MI:SS') "
+        "TO_CHAR(started_at + INTERVAL '9' HOUR, 'YYYY-MM-DD HH24:MI:SS'), "
+        "TO_CHAR(finished_at + INTERVAL '9' HOUR, 'YYYY-MM-DD HH24:MI:SS') "
         "FROM data_load_logs ORDER BY id DESC FETCH FIRST 20 ROWS ONLY"
     )
     return [
@@ -582,35 +746,59 @@ async def _process_one_stock(
     return results
 
 
-async def _build_portfolio_timeline(results: list[dict], bmc: BMC, base_amt: float, max_pos: int) -> list[dict]:
+async def _build_portfolio_timeline(results: list[dict], bmc: BMC, base_amt: float, max_pos: int, candle_cache: dict[str, list[dict]] | None = None) -> tuple[list[dict], dict]:
+    closed_trades: list[dict] = []
     if not results or max_pos < 1:
-        return []
+        return [], {"closed": 0, "wins": 0, "losses": 0, "winRate": 0, "avgWin": 0, "avgLoss": 0, "profitFactor": 0, "bestPnl": 0, "worstPnl": 0, "totalReturnPct": 0, "totalProfit": 0}
     pos_size = base_amt / max_pos
     names: dict[str, str] = {r["ticker"]: r.get("name", "") for r in results}
 
-    # Group results by ticker to process one ticker at a time
     by_ticker: dict[str, list[dict]] = {}
     for r in results:
         by_ticker.setdefault(r["ticker"], []).append(r)
 
-    # Build date-keyed event map (process one ticker at a time to limit memory)
     by_date: dict[str, list[tuple]] = {}
+    pool = get_pool()
 
     for ticker, ticker_results in by_ticker.items():
-        candles = await fetch_stock_data(ticker)
+        candles: list[dict] | None = None
+        if candle_cache and ticker in candle_cache:
+            candles = candle_cache[ticker]
+        if not candles and pool:
+            try:
+                rows = await execute_query(
+                    "SELECT trade_date, open_price, high_price, low_price, close_price, volume "
+                    "FROM stock_daily_prices WHERE ticker = :1 ORDER BY trade_date",
+                    [ticker],
+                )
+                if rows:
+                    candles = [
+                        {
+                            "time": str(r[0].date() if hasattr(r[0], "date") else r[0]),
+                            "open": float(r[1]), "high": float(r[2]),
+                            "low": float(r[3]), "close": float(r[4]),
+                            "volume": int(r[5]) if r[5] is not None else 0,
+                        }
+                        for r in rows
+                    ]
+            except Exception:
+                pass
         if not candles:
-            continue
+            candles = await fetch_stock_data(ticker)
+            if not candles:
+                continue
         ticker_results.sort(key=lambda r: r["entry_date"])
         for r in ticker_results:
             entry_idx = next((i for i, c in enumerate(candles) if c["time"] >= r["entry_date"]), 0)
             if entry_idx >= len(candles):
                 continue
             entry = candles[entry_idx]
+            entry_price = r.get("entry_price", entry["close"])
             ps = PositionState(
-                ticker=ticker, entry_date=entry["time"], entry_price=entry["close"],
-                quantity=1, highest_price_since_entry=entry["close"], config=bmc,
+                ticker=ticker, entry_date=entry["time"], entry_price=entry_price,
+                quantity=1, highest_price_since_entry=entry_price, config=bmc,
             )
-            by_date.setdefault(entry["time"], []).append((ticker, "BUY", entry["close"], None, False, False))
+            by_date.setdefault(entry["time"], []).append((ticker, "BUY", entry_price, None, False, False))
             for c in candles[entry_idx + 1:]:
                 price = c["close"]
                 sig, reason = ps.update_and_check_signal(price)
@@ -624,25 +812,28 @@ async def _build_portfolio_timeline(results: list[dict], bmc: BMC, base_amt: flo
                     break
 
     if not by_date:
-        return []
+        return [], _empty_trade_stats()
 
     active: dict[str, dict] = {}
     cash = base_amt
     portfolio = []
     all_dates = sorted(by_date)
+    cm = bmc.commission + bmc.slippage
+    se = bmc.commission + bmc.tax + bmc.slippage
 
     for di, date in enumerate(all_dates):
         if di > 0 and di % 50 == 0:
             await asyncio.sleep(0)
         events = by_date[date]
 
-        # Phase 1: Handle BUY signals (deduct cash, add positions)
+        # Phase 1: Handle BUY signals (deduct cash with costs, add positions)
         for ticker, sig, price, reason, is_trailing, is_be in events:
             if sig == "BUY" and ticker not in active and len(active) < max_pos:
-                shares = int(pos_size / price) if price > 0 else 0
+                cost_per_share = price * (1 + cm)
+                shares = int(pos_size / cost_per_share) if cost_per_share > 0 else 0
                 if shares == 0:
                     continue
-                cost = shares * price
+                cost = shares * cost_per_share
                 if cost > cash:
                     continue
                 cash -= cost
@@ -680,13 +871,16 @@ async def _build_portfolio_timeline(results: list[dict], bmc: BMC, base_amt: flo
                 "profit_amt": round(profit_amt, 2),
             })
 
-        # Phase 3: Handle SELL signals (add proceeds to cash)
+        # Phase 3: Handle SELL signals (add proceeds after costs)
         for ticker in list(active.keys()):
             for t2, sig, price, reason, is_trailing, is_be in events:
                 if t2 == ticker and sig == "SELL":
                     info = active[ticker]
-                    proceeds = price * info["shares"]
+                    proceeds = price * info["shares"] * (1 - se)
                     cash += proceeds
+                    ep = info["entry_price"]
+                    trade_pnl = _calc_pnl(ep, price, bmc)
+                    closed_trades.append({"pnl": trade_pnl, "entry_price": ep, "exit_price": price})
                     del active[ticker]
                     break
 
@@ -699,7 +893,57 @@ async def _build_portfolio_timeline(results: list[dict], bmc: BMC, base_amt: flo
             "pnl_amt": round(tv - base_amt, 2),
         })
 
-    return portfolio
+    trade_stats = _compute_trade_stats(closed_trades)
+    trade_stats["totalReturnPct"] = round((portfolio[-1]["total_value"] - base_amt) / base_amt, 6)
+    trade_stats["totalProfit"] = round(portfolio[-1]["total_value"] - base_amt, 2)
+    return portfolio, trade_stats
+
+
+def _empty_trade_stats() -> dict:
+    return {"closed": 0, "wins": 0, "losses": 0, "winRate": 0, "avgWin": 0, "avgLoss": 0, "profitFactor": 0, "bestPnl": 0, "worstPnl": 0, "totalReturnPct": 0, "totalProfit": 0}
+
+
+def _compute_trade_stats(trades: list[dict]) -> dict:
+    closed = len(trades)
+    if closed == 0:
+        return _empty_trade_stats()
+    wins = [t for t in trades if t["pnl"] > 0]
+    losses = [t for t in trades if t["pnl"] <= 0]
+    win_rate = len(wins) / closed if closed > 0 else 0
+    avg_win = sum(t["pnl"] for t in wins) / len(wins) if wins else 0
+    avg_loss = sum(t["pnl"] for t in losses) / len(losses) if losses else 0
+    total_gain = sum(t["pnl"] for t in wins)
+    total_loss = abs(sum(t["pnl"] for t in losses))
+    pf = total_gain / total_loss if total_loss > 0 else (99 if total_gain > 0 else 0)
+    best = max(t["pnl"] for t in trades)
+    worst = min(t["pnl"] for t in trades)
+    return {
+        "closed": closed,
+        "wins": len(wins),
+        "losses": len(losses),
+        "winRate": round(win_rate * 100, 1),
+        "avgWin": round(avg_win * 100, 2),
+        "avgLoss": round(avg_loss * 100, 2),
+        "profitFactor": round(pf, 2),
+        "bestPnl": round(best * 100, 2),
+        "worstPnl": round(worst * 100, 2),
+        "totalReturnPct": 0,
+        "totalProfit": 0,
+    }
+
+
+@router.post("/scan/{scan_id}/cancel")
+async def cancel_scan(scan_id: str) -> dict:
+    state = _scan_states.get(scan_id)
+    if not state:
+        raise HTTPException(404, "Scan not found")
+    _scan_cancel_flags[scan_id] = True
+    task = _scan_tasks.get(scan_id)
+    if task and not task.done():
+        task.cancel()
+    state["status"] = "cancelled"
+    state["message"] = "Scan cancelled by user"
+    return {"status": "cancelled", "scan_id": scan_id}
 
 
 async def _run_scan(scan_id: str, req: TickerBacktestRequest) -> None:
@@ -716,6 +960,7 @@ async def _run_scan(scan_id: str, req: TickerBacktestRequest) -> None:
         all_tickers = await get_all_tickers()
         _logger.warning("[SCAN %s] get_all_tickers returned %d tickers", scan_id, len(all_tickers))
         total = len(all_tickers)
+        state["total"] = total
         limit = req.config.rankingCandidateLimit or 9999
         min_vol = req.config.minVolume
         max_volat = req.config.maxVolatility
@@ -739,8 +984,8 @@ async def _run_scan(scan_id: str, req: TickerBacktestRequest) -> None:
                     FROM (
                         SELECT ticker, volume, high_price, low_price, close_price
                         FROM stock_daily_prices
-                        WHERE trade_date >= TO_DATE(:rs, 'YYYY-MM-DD')
-                          AND trade_date <= TO_DATE(:ed, 'YYYY-MM-DD')
+                        WHERE trade_date >= TO_DATE(:1, 'YYYY-MM-DD')
+                          AND trade_date <= TO_DATE(:2, 'YYYY-MM-DD')
                     )
                     GROUP BY ticker
                 )
@@ -770,10 +1015,10 @@ async def _run_scan(scan_id: str, req: TickerBacktestRequest) -> None:
             except Exception as e:
                 _logger.warning("[SCAN %s] Pre-filter query error: %s", scan_id, e)
 
-        # Tickers with DB data get priority; others get Naver fallback
+        # When pre-filter succeeds, only process DB candidates; Naver fallback is always stale
         if candidate_codes:
             db_tickers = [t for t in all_tickers if t["ticker"] in candidate_codes]
-            naver_tickers = [t for t in all_tickers if t["ticker"] not in candidate_codes and t["ticker"] not in {x["ticker"] for x in db_tickers}]
+            naver_tickers = []
         else:
             db_tickers = all_tickers
             naver_tickers = []
@@ -785,16 +1030,24 @@ async def _run_scan(scan_id: str, req: TickerBacktestRequest) -> None:
 
         # ── Step 2: Process candidates in batches ──
         DB_BATCH = 1000
-        BATCH = 50
+        BATCH = 100
         all_candidates = db_tickers + naver_tickers
         done = 0
+        pool = _get_process_pool()
+        loop = asyncio.get_running_loop()
 
         for batch_start in range(0, len(all_candidates), BATCH):
+            if _scan_cancel_flags.get(scan_id):
+                state["status"] = "cancelled"
+                state["message"] = f"Scan cancelled ({done}/{total_candidates} processed)"
+                _logger.warning("[SCAN %s] Cancelled by user", scan_id)
+                return
+
             batch_tickers = all_candidates[batch_start:batch_start + BATCH]
             ticker_codes = [t["ticker"] for t in batch_tickers]
             is_db_batch = any(t["ticker"] in candidate_codes for t in batch_tickers) if candidate_codes else True
 
-            await asyncio.sleep(0)  # yield to event loop for health checks
+            await asyncio.sleep(0)
 
             batch_map: dict[str, list[dict]] = {}
             if is_db_batch:
@@ -844,36 +1097,62 @@ async def _run_scan(scan_id: str, req: TickerBacktestRequest) -> None:
                 gathered = await asyncio.gather(*tasks)
                 batch_map = {t: data for t, data in gathered if data}
 
-            await asyncio.sleep(0)  # yield after gather before processing
-            # Process batch — sequential yields between CPU-bound tasks
+            await asyncio.sleep(0)
             _logger.warning("[SCAN %s] Starting batch %d with %d tickers", scan_id, batch_start // BATCH + 1, len(batch_tickers))
-            batch_results = []
+
+            # Process all tickers in batch in parallel via process pool (2 cores)
+            pool_tasks = []
             for t_info in batch_tickers:
-                await asyncio.sleep(0)  # yield to event loop between each task
-                r = await _process_one_stock(
-                    t_info, bmc, start_date, end_date,
-                    preloaded=batch_map.get(t_info["ticker"]),
-                )
-                batch_results.append(r)
+                candles = batch_map.get(t_info["ticker"])
+                if candles:
+                    pool_tasks.append(
+                        loop.run_in_executor(pool, _run_on_data_sync, t_info["ticker"], candles, bmc)
+                    )
+                else:
+                    pool_tasks.append(None)
+
+            completed = await asyncio.gather(*[t for t in pool_tasks if t is not None])
+            batch_results = []
+            pt_idx = 0
+            for t_info in batch_tickers:
+                pt = pool_tasks[pt_idx]
+                pt_idx += 1
+                if pt is not None:
+                    r = completed.pop(0)
+                    if r:
+                        for sig in r:
+                            sig["name"] = t_info["name"]
+                            sig["sector"] = t_info["sector"]
+                            sig["market"] = t_info.get("market", "")
+                        batch_results.append(r)
+                    else:
+                        batch_results.append(None)
+                else:
+                    batch_results.append(None)
+
             _logger.warning("[SCAN %s] Batch completed", scan_id)
             for idx, result_list in enumerate(batch_results):
                 done += 1
                 state["processed"] = done
-                await asyncio.sleep(0)  # yield to event loop for health checks
                 if result_list:
                     for r in result_list:
                         state["results"].append(r)
                     state["completed"] += len(result_list)
 
-            del batch_map
-            gc.collect()
+                ticker = batch_tickers[idx]["ticker"]
+                if result_list and ticker in batch_map:
+                    _scan_candle_cache.setdefault(scan_id, {})[ticker] = batch_map[ticker]
+
             state["message"] = f"({done}/{total_candidates}) {state['completed']} signals found"
 
         state["status"] = "completed"
         state["message"] = f"Scan completed. {state['completed']} signals found across {total} stocks."
 
+    except asyncio.CancelledError:
+        state["status"] = "cancelled"
+        state["message"] = f"Scan cancelled ({state['processed']}/{state['total']} processed)"
+        _logger.warning("[SCAN %s] Cancelled via CancelledError", scan_id)
     except Exception as e:
-        state["status"] = "failed"
         state["message"] = f"Error: {e}"
 
 
@@ -882,7 +1161,7 @@ async def _run_scan(scan_id: str, req: TickerBacktestRequest) -> None:
 async def list_configs() -> list[dict]:
     rows = await execute_query(
         "SELECT id, name, params, result_summary, is_active, "
-        "TO_CHAR(created_at, 'YYYY-MM-DD HH24:MI:SS') FROM saved_configs "
+        "TO_CHAR(created_at + INTERVAL '9' HOUR, 'YYYY-MM-DD HH24:MI:SS') FROM saved_configs "
         "ORDER BY created_at DESC"
     )
     result = []

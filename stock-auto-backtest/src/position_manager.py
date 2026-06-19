@@ -14,6 +14,13 @@ class BacktestConfig:
     min_volume: int = 500_000
     max_volatility: float = 0.12
     stall_exit_days: int = 2
+    stop_loss_pct: float = 0.0
+    entry_type: str = "momentum"
+    entry_trigger: str = "next_close"
+    entry_conditions: list[str] | None = None
+    commission: float = 0.0002
+    tax: float = 0.0015
+    slippage: float = 0.001
 
 
 @dataclass
@@ -42,8 +49,12 @@ class PositionState:
         peak_profit_pct = (self.highest_price_since_entry - entry) / entry
         cfg = self.config
 
-        # 1. Fixed take profit
-        if profit_pct >= cfg.fixed_take_profit_pct:
+        # 1. Stop loss
+        stop_loss_pct = cfg.stop_loss_pct or 0
+        if stop_loss_pct > 0 and profit_pct <= -stop_loss_pct:
+            return ('SELL', 'stop_loss')
+
+        # 2. Fixed take profit
             return ('SELL', 'take_profit')
 
         # 2. Trailing stop
@@ -64,6 +75,8 @@ class PositionState:
         if self.holding_days >= cfg.stall_exit_days and peak_profit_pct < cfg.trailing_activation_pct:
             return ('SELL', 'stall_exit')
 
+        if peak_profit_pct >= cfg.trailing_activation_pct:
+            return ('HOLD', 'trailing')
         return ('HOLD', None)
 
 

@@ -1,7 +1,7 @@
 export const batchStatusCard = `
-<div class="card">
+<div class="card" style="overflow-x:auto">
   <h3>데이터 적재 현황</h3>
-  <div id="batchStatusBody" style="font-size:12px;color:#8b949e">로딩 중...</div>
+  <div id="batchStatusBody" style="font-size:12px">로딩 중...</div>
 </div>
 <div class="modal-overlay" id="batchLogOverlay">
   <div class="detail-modal-box" style="max-width:600px">

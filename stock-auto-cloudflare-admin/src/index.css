@@ -1,0 +1,62 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    -webkit-tap-highlight-color: transparent;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  body {
+    @apply min-h-screen overflow-x-hidden;
+  }
+
+  input, select, textarea, button {
+    @apply outline-none;
+  }
+
+  input:focus-visible, select:focus-visible, textarea:focus-visible, button:focus-visible {
+    @apply ring-2 ring-primary/40 ring-offset-1 ring-offset-surface;
+  }
+
+  ::-webkit-scrollbar {
+    @apply w-1;
+  }
+  ::-webkit-scrollbar-track {
+    @apply bg-transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    @apply bg-surface-border rounded-full;
+  }
+}
+
+@layer components {
+  .card {
+    @apply bg-surface-card border border-surface-border rounded-card p-4;
+  }
+
+  .badge {
+    @apply inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium;
+  }
+
+  .kpi-value {
+    @apply font-mono tabular-nums text-lg font-semibold tracking-tight;
+  }
+
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-medium transition-colors active:scale-95 min-h-[44px];
+  }
+
+  .btn-primary {
+    @apply btn bg-primary text-white hover:bg-primary-hover;
+  }
+
+  .btn-ghost {
+    @apply btn bg-transparent text-text-secondary hover:bg-surface-hover;
+  }
+
+  .skeleton {
+    @apply animate-pulse bg-surface-border/60 rounded-lg;
+  }
+}

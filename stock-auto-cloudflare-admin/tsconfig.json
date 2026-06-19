@@ -6,6 +6,10 @@
     "strict": true,
     "skipLibCheck": true,
     "esModuleInterop": true,
-    "types": ["@cloudflare/workers-types"]
-  }
+    "jsx": "react-jsx",
+    "lib": ["ES2020", "DOM", "DOM.Iterable"],
+    "types": ["vite/client"]
+  },
+  "include": ["src"],
+  "exclude": ["src/index.ts"]
 }

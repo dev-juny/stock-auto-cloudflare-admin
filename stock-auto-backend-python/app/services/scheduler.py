@@ -28,10 +28,17 @@ def _dict_to_bmc(d: dict) -> BacktestConfig:
         trailing_activation_pct=d.get("trailingActivationPct", d.get("trailing_activation_pct", 0.03)),
         trailing_stop_pct=d.get("trailingStopPct", d.get("trailing_stop_pct", 0.03)),
         stall_exit_days=d.get("stallExitDays", d.get("stall_exit_days", 2)),
-        min_volume=0,
-        max_volatility=1.0,
-        ranking_candidate_limit=9999,
+        stop_loss_pct=d.get("stopLossPct", d.get("stop_loss_pct", 0.0)),
+        min_volume=d.get("minVolume", d.get("min_volume", 0)),
+        max_volatility=d.get("maxVolatility", d.get("max_volatility", 1.0)),
+        ranking_candidate_limit=d.get("rankingCandidateLimit", d.get("ranking_candidate_limit", 9999)),
         max_concurrent_positions=d.get("maxConcurrentPositions", d.get("max_concurrent_positions", 9999)),
+        entry_type=d.get("entryType", d.get("entry_type", "momentum")),
+        entry_trigger=d.get("entryTrigger", d.get("entry_trigger", "next_close")),
+        entry_conditions=d.get("entryConditions", d.get("entry_conditions", None)),
+        commission=d.get("commission", 0.0002),
+        tax=d.get("tax", 0.0015),
+        slippage=d.get("slippage", 0.001),
     )
 
 
@@ -153,7 +160,7 @@ async def scheduler_loop() -> None:
     cycles_since_daily = 0
 
     while True:
-        interval, _ = await _load_scheduler_config()
+        interval, _, _ = await _load_scheduler_config()
 
         try:
             await run_trading_loop()

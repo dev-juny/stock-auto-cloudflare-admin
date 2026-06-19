@@ -28,10 +28,17 @@ class BacktestConfig(BaseModel):
     trailingActivationPct: float = 0.03
     trailingStopPct: float = 0.03
     stallExitDays: int = 2
+    stopLossPct: float = 0.0
     minVolume: int = 0
     maxVolatility: float = 1.0
     rankingCandidateLimit: int = 9999
     maxConcurrentPositions: int = 9999
+    entryType: str = "momentum"
+    entryTrigger: str = "next_close"
+    entryConditions: list[str] | None = None
+    commission: float = 0.0002
+    tax: float = 0.0015
+    slippage: float = 0.001
 
 
 class BacktestRequest(BaseModel):

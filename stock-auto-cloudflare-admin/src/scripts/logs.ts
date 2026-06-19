@@ -9,7 +9,7 @@ async function loadLogs() {
       return '<div class="log-entry">' +
         '<input type="checkbox" class="log-check" value="' + l.LOG_ID + '">' +
         '<span class="log-body">' +
-        '<span style="color:#8b949e">' + new Date(l.CREATED_AT).toLocaleString() + '</span> ' +
+        '<span style="color:#8b949e">' + new Date(l.CREATED_AT).toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' }) + '</span> ' +
         '<span class="badge ' + (l.LOG_LEVEL === 'ERROR' ? 'off' : 'on') + '">' + l.LOG_LEVEL + '</span> ' +
         '<span>' + l.SOURCE + '</span> — ' +
         l.MESSAGE +

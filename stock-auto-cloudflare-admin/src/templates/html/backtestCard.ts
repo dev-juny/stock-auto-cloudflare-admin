@@ -1,38 +1,79 @@
-export const backtestCard = `
+﻿export const backtestCard = `
 <div class="card">
   <h3>백테스트 파라미터</h3>
-  <div class="backtest-params">
-    <label>익절률 (fixedTakeProfitPct)
-      <input id="bt_takeProfit" type="number" value="0.07" step="0.01" onchange="saveParams()">
-    </label>
-    <label>본절 활성화 (breakEvenActivationPct)
-      <input id="bt_breakEvenAct" type="number" value="0.07" step="0.01" onchange="saveParams()">
-    </label>
-    <label>트레일링 활성화 (trailingActivationPct)
-      <input id="bt_trailAct" type="number" value="0.03" step="0.01" onchange="saveParams()">
-    </label>
-    <label>트레일링 스탑 (trailingStopPct)
-      <input id="bt_trailStop" type="number" value="0.03" step="0.01" onchange="saveParams()">
-    </label>
-    <label>정체 청산일 (stallExitDays)
-      <input id="bt_stallDays" type="number" value="2" step="1" onchange="saveParams()">
-    </label>
-    <label>순위 후보 제한 (rankingCandidateLimit)
-      <input id="bt_rankLimit" type="number" value="30" step="1" onchange="saveParams()">
-    </label>
-    <label>최대 동시 포지션 (maxConcurrentPositions)
-      <input id="bt_maxPos" type="number" value="10" step="1" onchange="saveParams()">
-    </label>
-    <label>최소 거래량 (minVolume)
-      <input id="bt_minVol" type="text" value="500000" onchange="saveParams()" onkeyup="comma(this)" onblur="comma(this)">
-    </label>
-    <label>최대 변동성 (maxVolatility)
-      <input id="bt_maxVol" type="number" value="0.12" step="0.01" onchange="saveParams()">
-    </label>
-    <label>기준 금액 (baseAmount)
-      <input id="bt_baseAmt" type="text" value="1000000" onchange="saveParams()" onkeyup="comma(this)" onblur="comma(this)">
-    </label>
+
+  <div class="param-section">
+    <div class="param-grid param-grid-compact">
+      <label><span class="param-tag tag-univ">U</span>최소 일 거래량
+        <input id="bt_minVol" type="text" value="500000" onchange="saveParams()" onkeyup="comma(this)" onblur="comma(this)">
+      </label>
+      <label><span class="param-tag tag-univ">U</span>최대 일 변동성
+        <input id="bt_maxVol" type="number" value="0.12" step="0.01" onchange="saveParams()">
+      </label>
+      <label><span class="param-tag tag-univ">U</span>스크리닝 상위 종목 수
+        <input id="bt_rankLimit" type="number" value="30" step="1" onchange="saveParams()">
+      </label>
+      <label><span class="param-tag tag-pos">P</span>동시 보유 종목 수
+        <input id="bt_maxPos" type="number" value="10" step="1" onchange="saveParams()">
+      </label>
+
+      <label><span class="param-tag tag-entry">E</span>매수 전략
+        <select id="bt_entryType" onchange="saveParams()">
+          <option value="momentum">모멘텀</option>
+          <option value="breakout">돌파</option>
+          <option value="pullback">되돌림</option>
+          <option value="hybrid">혼합</option>
+          <option value="unknown">미지정</option>
+        </select>
+      </label>
+      <label><span class="param-tag tag-entry">E</span>매수 시점
+        <select id="bt_entryTrigger" onchange="saveParams()">
+          <option value="next_close">당일 종가</option>
+          <option value="next_open">다음일 시가</option>
+          <option value="intraday">장중 체결</option>
+          <option value="breakout_confirm">돌파 확인 후</option>
+        </select>
+      </label>
+      <label><span class="param-tag tag-cost">C</span>거래 수수료
+        <input id="bt_commission" type="number" value="0.0002" step="0.0001" onchange="saveParams()">
+      </label>
+      <label><span class="param-tag tag-cost">C</span>증권거래세
+        <input id="bt_tax" type="number" value="0.0015" step="0.0001" onchange="saveParams()">
+      </label>
+
+      <label><span class="param-tag tag-exit">X</span>익절 (고정 수익률)
+        <input id="bt_takeProfit" type="number" value="0.07" step="0.01" onchange="saveParams()">
+      </label>
+      <label><span class="param-tag tag-exit">X</span>본절 전환 (수익률)
+        <input id="bt_breakEvenAct" type="number" value="0.07" step="0.01" onchange="saveParams()">
+      </label>
+      <label><span class="param-tag tag-exit">X</span>트레일링 시작 (수익률)
+        <input id="bt_trailAct" type="number" value="0.03" step="0.01" onchange="saveParams()">
+      </label>
+      <label><span class="param-tag tag-exit">X</span>트레일링 폭 (고점 대비 %)
+        <input id="bt_trailStop" type="number" value="0.03" step="0.01" onchange="saveParams()">
+      </label>
+
+      <label><span class="param-tag tag-exit">X</span>손절 (고정 손실률)
+        <input id="bt_stopLoss" type="number" value="0" step="0.01" onchange="saveParams()">
+      </label>
+      <label><span class="param-tag tag-exit">X</span>정체 청산 (보유일)
+        <input id="bt_stallDays" type="number" value="2" step="1" onchange="saveParams()">
+      </label>
+      <label><span class="param-tag tag-cost">C</span>슬리피지 (호가차)
+        <input id="bt_slippage" type="number" value="0.001" step="0.0001" onchange="saveParams()">
+      </label>
+      <label><span class="param-tag tag-pos">P</span>1회 매수 금액
+        <input id="bt_baseAmt" type="text" value="1000000" onchange="saveParams()" onkeyup="comma(this)" onblur="comma(this)">
+      </label>
+    </div>
+    <div class="param-grid" style="margin-top:6px">
+      <label class="param-full"><span class="param-tag tag-entry">E</span>매수 조건
+        <textarea id="bt_entryConditions" rows="1" onchange="saveParams()">일 거래량 > 최소 거래량&#10;일 변동성 < 최대 변동성</textarea>
+      </label>
+    </div>
   </div>
+
   <button class="btn" onclick="saveParamConfig()" style="font-size:12px;padding:6px 14px">설정 저장</button>
 </div>
 
@@ -65,14 +106,30 @@ export const backtestCard = `
     <button class="btn" onclick="saveCurrentConfig()" style="font-size:11px;padding:2px 10px;margin-left:8px;vertical-align:middle">현재 설정 저장</button>
   </h3>
   <div class="stats-bar hidden" id="statsBar">
-    <div class="stat-item"><span class="stat-label">승률</span><span class="stat-val" id="statsWinRate">-</span></div>
-    <div class="stat-item"><span class="stat-label">평균승리</span><span class="stat-val" id="statsAvgWin">-</span></div>
-    <div class="stat-item"><span class="stat-label">평균손실</span><span class="stat-val" id="statsAvgLoss">-</span></div>
-    <div class="stat-item"><span class="stat-label">Profit Factor</span><span class="stat-val" id="statsProfitFactor">-</span></div>
-    <div class="stat-item"><span class="stat-label">총수익률</span><span class="stat-val" id="statsTotalReturn">-</span></div>
-    <div class="stat-item"><span class="stat-label">총수익금</span><span class="stat-val" id="statsTotalProfit">-</span></div>
-    <div class="stat-item"><span class="stat-label">최고수익</span><span class="stat-val" id="statsBestTrade">-</span></div>
-    <div class="stat-item"><span class="stat-label">최대손실</span><span class="stat-val" id="statsWorstTrade">-</span></div>
+    <div class="stats-section">
+      <div class="stats-section-label">신호</div>
+      <div class="stats-items">
+        <div class="stat-item"><span class="stat-label">승률</span><span class="stat-val" id="statsWinRate">-</span></div>
+        <div class="stat-item"><span class="stat-label">평균승리</span><span class="stat-val" id="statsAvgWin">-</span></div>
+        <div class="stat-item"><span class="stat-label">평균손실</span><span class="stat-val" id="statsAvgLoss">-</span></div>
+        <div class="stat-item"><span class="stat-label">수익 팩터</span><span class="stat-val" id="statsProfitFactor">-</span></div>
+        <div class="stat-item"><span class="stat-label">최고수익</span><span class="stat-val" id="statsBestTrade">-</span></div>
+        <div class="stat-item"><span class="stat-label">최대손실</span><span class="stat-val" id="statsWorstTrade">-</span></div>
+      </div>
+    </div>
+    <div class="stats-section">
+      <div class="stats-section-label">포트폴리오</div>
+      <div class="stats-items">
+        <div class="stat-item"><span class="stat-label">승률</span><span class="stat-val" id="pfWinRate">-</span></div>
+        <div class="stat-item"><span class="stat-label">평균승리</span><span class="stat-val" id="pfAvgWin">-</span></div>
+        <div class="stat-item"><span class="stat-label">평균손실</span><span class="stat-val" id="pfAvgLoss">-</span></div>
+        <div class="stat-item"><span class="stat-label">수익 팩터</span><span class="stat-val" id="pfProfitFactor">-</span></div>
+        <div class="stat-item"><span class="stat-label">최고수익</span><span class="stat-val" id="pfBestTrade">-</span></div>
+        <div class="stat-item"><span class="stat-label">최대손실</span><span class="stat-val" id="pfWorstTrade">-</span></div>
+        <div class="stat-item"><span class="stat-label">총수익률</span><span class="stat-val" id="pfTotalReturn">-</span></div>
+        <div class="stat-item"><span class="stat-label">총수익금</span><span class="stat-val" id="pfTotalProfit">-</span></div>
+      </div>
+    </div>
   </div>
   <div class="results-tab-bar">
     <button class="results-tab active" data-view="signals">신호</button>
@@ -139,3 +196,4 @@ export const backtestCard = `
   </div>
 </div>
 `;
+

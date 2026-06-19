@@ -4,6 +4,7 @@ import ast
 import asyncio
 import csv
 import json
+import logging
 import os
 import time
 from datetime import date, datetime, timedelta
@@ -11,16 +12,19 @@ from io import StringIO
 from pathlib import Path
 from typing import Any
 
+log = logging.getLogger(__name__)
+
 import httpx
 
 NAVER_BASE = "https://api.finance.naver.com/siseJson.nhn"
 KRX_URL = "http://kind.krx.co.kr/corpgeneral/corpList.do?method=download&searchType=13&marketType=stockMkt"
 
 CACHE_DIR_VAR = "STOCK_DATA_CACHE"
-CACHE_MAX_AGE = 86400 * 7
+CACHE_MAX_AGE = 86400 * 6
+NAVER_TIMEOUT = 60
 
 _http = httpx.AsyncClient(
-    timeout=15,
+    timeout=45,
     follow_redirects=True,
     headers={"User-Agent": "Mozilla/5.0", "Referer": "https://finance.naver.com/"},
 )
@@ -99,12 +103,14 @@ async def fetch_stock_data(ticker: str) -> list[dict[str, Any]]:
             cache_path.write_text(json.dumps(raw, ensure_ascii=False), encoding="utf-8")
             await asyncio.sleep(0)  # yield after CPU-bound json.dumps + I/O write
             data = raw
-        elif cache_path.exists():
-            try:
-                data = json.loads(cache_path.read_text(encoding="utf-8"))
-                await asyncio.sleep(0)  # yield after CPU-bound json.loads + I/O read
-            except Exception:
-                data = None
+        else:
+            log.warning("Naver download failed for %s, using stale cache", ticker)
+            if cache_path.exists():
+                try:
+                    data = json.loads(cache_path.read_text(encoding="utf-8"))
+                    await asyncio.sleep(0)  # yield after CPU-bound json.loads + I/O read
+                except Exception:
+                    data = None
 
     return data or []
 
@@ -154,11 +160,15 @@ async def _download_naver(ticker: str) -> list[dict[str, Any]] | None:
         f"&endTime={end.strftime('%Y%m%d')}"
         f"&timeframe=day"
     )
-    try:
-        resp = await _http.get(url)
-        if resp.status_code != 200:
-            return None
-        body = resp.text.strip()
-        return await _parse_naver_lines(body)
-    except Exception:
-        return None
+    for attempt in range(2):
+        try:
+            resp = await _http.get(url, timeout=NAVER_TIMEOUT)
+            if resp.status_code != 200:
+                return None
+            body = resp.text.strip()
+            return await _parse_naver_lines(body)
+        except Exception:
+            if attempt == 0:
+                await asyncio.sleep(3)
+            else:
+                return None

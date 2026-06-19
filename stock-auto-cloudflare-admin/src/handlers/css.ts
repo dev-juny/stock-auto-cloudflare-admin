@@ -18,6 +18,9 @@ export const handleCss = (pathname: string): Response | null => {
   const css = cssMap[pathname];
   if (!css) return null;
   return new Response(css, {
-    headers: { 'Content-Type': 'text/css; charset=utf-8' },
+    headers: {
+      'Content-Type': 'text/css; charset=utf-8',
+      'Cache-Control': 'no-cache, must-revalidate',
+    },
   });
 };

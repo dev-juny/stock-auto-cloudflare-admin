@@ -1,4 +1,4 @@
-export const backtestCss = `
+﻿export const backtestCss = `
 /* backtest page */
 .backtest-params {
   display: grid;
@@ -256,10 +256,10 @@ export const backtestCss = `
 .btn-detail {
   background: #1f6feb;
   border: none;
-  border-radius: 4px;
-  padding: 4px 10px;
+  border-radius: 3px;
+  padding: 2px 6px;
   color: #fff;
-  font-size: 11px;
+  font-size: 10px;
   cursor: pointer;
   white-space: nowrap;
 }
@@ -308,13 +308,35 @@ export const backtestCss = `
 /* stats bar */
 .stats-bar {
   display: flex;
-  flex-wrap: wrap;
-  gap: 4px 16px;
-  padding: 10px 12px;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 12px;
   margin-bottom: 12px;
   background: #0d1117;
   border: 1px solid #21262d;
   border-radius: 6px;
+}
+.stats-section {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 4px 0;
+}
+.stats-section + .stats-section {
+  border-top: 1px solid #21262d;
+  margin-top: 2px;
+  padding-top: 6px;
+}
+.stats-section-label {
+  font-size: 10px;
+  font-weight: 600;
+  color: #58a6ff;
+  letter-spacing: 0.5px;
+}
+.stats-items {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
 }
 .stat-item {
   display: flex;
@@ -446,6 +468,66 @@ export const backtestCss = `
 }
 
 /* results tabs (signals / portfolio) */
+/* param sections */
+.param-section {
+  background: #0d1117;
+  border: 1px solid #21262d;
+  border-radius: 8px;
+  padding: 14px 16px;
+  margin: 12px 0;
+}
+.param-section-header {
+  font-size: 13px;
+  font-weight: 700;
+  color: #58a6ff;
+  margin-bottom: 10px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid #21262d;
+}
+.param-section-sub {
+  font-weight: 400;
+  color: #8b949e;
+  margin-left: 4px;
+  font-size: 11px;
+}
+.param-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+.param-grid label {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 11px;
+  color: #8b949e;
+}
+.param-grid label.param-full {
+  grid-column: 1 / -1;
+}
+.param-grid input, .param-grid select, .param-grid textarea {
+  background: #161b22;
+  border: 1px solid #30363d;
+  border-radius: 4px;
+  padding: 6px 8px;
+  color: #c9d1d9;
+  font-size: 12px;
+  width: 100%;
+}
+.param-grid input:focus, .param-grid select:focus, .param-grid textarea:focus {
+  border-color: #58a6ff;
+  outline: none;
+}
+.param-grid textarea {
+  font-family: inherit;
+  resize: vertical;
+}
+.param-field {
+  color: #484f58;
+  font-size: 10px;
+  font-weight: 400;
+}
+
 .results-tab-bar {
   display: flex;
   gap: 0;
@@ -512,3 +594,4 @@ export const backtestCss = `
 .portfolio-summary .ps-item { font-size: 13px; color: #8b949e }
 .portfolio-summary .ps-item strong { color: #c9d1d9 }
 `;
+
