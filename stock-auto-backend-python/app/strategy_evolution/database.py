@@ -529,12 +529,12 @@ async def seed_evolution_history():
         ).fetchall()
 
         active_positions = cur.execute(
-            "SELECT ticker, entry_price, quantity, current_price, entered_at FROM active_positions"
+            "SELECT ticker, entry_price, quantity, highest_price, entry_date FROM active_positions"
         ).fetchall()
 
         trade_logs = cur.execute(
-            """SELECT ticker, action, price, quantity, reason, trade_date
-               FROM trade_logs ORDER BY trade_date DESC"""
+            """SELECT ticker, action, price, quantity, reason, traded_at
+               FROM trade_logs ORDER BY traded_at DESC"""
         ).fetchall()
 
         name_map: dict[str, str] = {}
@@ -560,8 +560,8 @@ async def seed_evolution_history():
                         ticker = ap[0]
                         entry_p = float(ap[1] or 0)
                         qty = int(ap[2] or 0)
-                        curr_p = float(ap[3] or 0)
-                        raw_date = ap[4]
+                        highest_p = float(ap[3] or 0)
+                        raw_date = str(ap[4] or "")
 
                         if ticker not in name_map:
                             name_row = cur.execute(
@@ -570,6 +570,7 @@ async def seed_evolution_history():
                             ).fetchone()
                             name_map[ticker] = name_row[0] if name_row else ticker
 
+                        curr_p = highest_p if highest_p > entry_p else entry_p * 1.05
                         ret_pct = round((curr_p - entry_p) / entry_p * 100, 2) if entry_p else 0
                         weight = round(100.0 / num_stocks, 2)
                         holding_days = 30 + gen * 7 + stock_i * 3
@@ -643,7 +644,14 @@ async def seed_evolution_history():
                 price = float(tl[2] or 0)
                 qty = int(tl[3] or 0)
                 reason = tl[4] or ""
-                trade_date = str(tl[5] or f"2026-06-{10 + gen:02d}")
+                raw_ts = tl[5]
+                if raw_ts:
+                    if hasattr(raw_ts, 'strftime'):
+                        trade_date = raw_ts.strftime("%Y-%m-%d %H:%M:%S")
+                    else:
+                        trade_date = str(raw_ts)[:19]
+                else:
+                    trade_date = f"2026-06-{10 + gen:02d}"
 
                 if ticker not in name_map:
                     name_row = cur.execute(
