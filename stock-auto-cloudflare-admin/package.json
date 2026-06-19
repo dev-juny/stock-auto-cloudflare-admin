@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
-    "deploy": "vite build && wrangler pages deploy dist --project-name stock-auto-admin --branch production"
+    "deploy": "vite build && wrangler deploy --env production"
   },
   "dependencies": {
     "lightweight-charts": "^5.2.0",
