@@ -275,3 +275,85 @@ export interface EvolutionConfig {
   winrate_threshold: number
   return_threshold: number
 }
+
+export interface EvolutionHolding {
+  stock_code: string
+  stock_name: string
+  market: string
+  weight: number
+  entry_price: number
+  current_price: number
+  return_pct: number
+  pnl_amount: number
+  holding_days: number
+  contribution_pct: number
+  status: string
+  factor_scores?: {
+    momentum_score: number
+    value_score: number
+    quality_score: number
+    volatility_score: number
+    fitness_contribution: number
+  } | null
+  selection_reasons?: string[] | null
+}
+
+export interface EvolutionTrade {
+  trade_date: string
+  stock_code: string
+  stock_name: string
+  action: string
+  quantity: number
+  price: number
+  amount: number
+  reason: string
+}
+
+export interface ContributionEntry {
+  stock_code: string
+  stock_name: string
+  contribution_pct: number
+  return_pct: number
+  weight_avg: number
+}
+
+export interface GenerationHistory {
+  generation: number
+  population_size: number
+  elite_count: number
+  avg_fitness: number
+  best_fitness: number
+  avg_return: number
+  avg_winrate: number
+  avg_mdd: number
+  total_return: number
+  holdings: EvolutionHolding[]
+  trades: EvolutionTrade[]
+  contributions: ContributionEntry[]
+}
+
+export interface CompareStockAction {
+  stock_code: string
+  stock_name: string
+  action: string
+  weight_before: number
+  weight_after: number
+  return_before: number
+  return_after: number
+}
+
+export interface HistoryCompareResult {
+  gen_a: { generation: number; count: number; avg_return: number; avg_winrate: number; avg_fitness: number; avg_mdd: number }
+  gen_b: { generation: number; count: number; avg_return: number; avg_winrate: number; avg_fitness: number; avg_mdd: number }
+  new_stocks: CompareStockAction[]
+  removed_stocks: CompareStockAction[]
+  changed_stocks: CompareStockAction[]
+  stock_changes: CompareStockAction[]
+}
+
+export interface ContributionResponse {
+  generation: number
+  total_return: number
+  contributions: ContributionEntry[]
+  total_abs: number
+}

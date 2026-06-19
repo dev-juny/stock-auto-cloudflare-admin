@@ -150,3 +150,82 @@ class CrossoverResult(BaseModel):
     child_id: int
     inherited_from_a: list[str]
     inherited_from_b: list[str]
+
+
+class EvolutionHolding(BaseModel):
+    stock_code: str = ""
+    stock_name: str = ""
+    market: str = ""
+    weight: float = 0.0
+    entry_price: float = 0.0
+    current_price: float = 0.0
+    return_pct: float = 0.0
+    pnl_amount: float = 0.0
+    holding_days: int = 0
+    contribution_pct: float = 0.0
+    status: str = "HOLDING"
+
+
+class EvolutionTrade(BaseModel):
+    trade_date: str = ""
+    stock_code: str = ""
+    stock_name: str = ""
+    action: str = ""
+    quantity: int = 0
+    price: float = 0.0
+    amount: float = 0.0
+    reason: str = ""
+
+
+class ContributionEntry(BaseModel):
+    stock_code: str = ""
+    stock_name: str = ""
+    contribution_pct: float = 0.0
+    return_pct: float = 0.0
+    weight_avg: float = 0.0
+
+
+class FactorScoreDetail(BaseModel):
+    momentum_score: float = 0.0
+    value_score: float = 0.0
+    quality_score: float = 0.0
+    volatility_score: float = 0.0
+    fitness_contribution: float = 0.0
+
+
+class SelectionReason(BaseModel):
+    reasons: list[str] = []
+
+
+class GenerationHistory(BaseModel):
+    generation: int
+    population_size: int = 0
+    elite_count: int = 0
+    avg_fitness: float = 0.0
+    best_fitness: float = 0.0
+    avg_return: float = 0.0
+    avg_winrate: float = 0.0
+    avg_mdd: float = 0.0
+    total_return: float = 0.0
+    holdings: list[EvolutionHolding] = []
+    trades: list[EvolutionTrade] = []
+    contributions: list[ContributionEntry] = []
+
+
+class CompareStockAction(BaseModel):
+    stock_code: str = ""
+    stock_name: str = ""
+    action: str = ""  # "new", "removed", "weight_changed"
+    weight_before: float = 0.0
+    weight_after: float = 0.0
+    return_before: float = 0.0
+    return_after: float = 0.0
+
+
+class CompareDetailResult(BaseModel):
+    gen_a: GenerationSummary
+    gen_b: GenerationSummary
+    stock_changes: list[CompareStockAction] = []
+    new_stocks: list[CompareStockAction] = []
+    removed_stocks: list[CompareStockAction] = []
+    changed_stocks: list[CompareStockAction] = []

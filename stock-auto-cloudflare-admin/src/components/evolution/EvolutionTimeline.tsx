@@ -4,9 +4,12 @@ import type { GenerationSummary } from '../../utils/api'
 interface Props {
   generations: GenerationSummary[]
   onGenClick?: (gen: number) => void
+  compareMode?: boolean
+  compareSelections?: Set<number>
+  onToggleCompare?: (gen: number) => void
 }
 
-export function EvolutionTimeline({ generations, onGenClick }: Props) {
+export function EvolutionTimeline({ generations, onGenClick, compareMode, compareSelections, onToggleCompare }: Props) {
   if (!generations || generations.length === 0) {
     return (
       <div className="bg-surface-card rounded-2xl p-6 border border-surface-border">
@@ -26,16 +29,34 @@ export function EvolutionTimeline({ generations, onGenClick }: Props) {
         </div>
       </div>
       <div className="divide-y divide-surface-border">
-        {sorted.map((g, idx) => (
+        {sorted.map((g, idx) => {
+          const isSelected = compareSelections?.has(g.generation)
+          return (
           <div
             key={`${g.generation}-${idx}`}
-            className="px-4 py-3 cursor-pointer hover:bg-surface/50 transition-colors"
-            onClick={() => onGenClick?.(g.generation)}
+            className={`px-4 py-3 cursor-pointer hover:bg-surface/50 transition-colors ${
+              compareMode && isSelected ? 'bg-primary/10 border-l-2 border-l-primary' : ''
+            }`}
+            onClick={() => {
+              if (compareMode) {
+                onToggleCompare?.(g.generation)
+              } else {
+                onGenClick?.(g.generation)
+              }
+            }}
           >
             <div className="flex items-center gap-2 mb-1.5">
+              {compareMode ? (
+                <div className={`flex items-center justify-center w-5 h-5 rounded border-2 transition-colors ${
+                  isSelected ? 'border-primary bg-primary text-white' : 'border-text-muted'
+                }`}>
+                  {isSelected && <span className="text-[10px] font-bold">✓</span>}
+                </div>
+              ) : (
               <div className="flex items-center justify-center w-6 h-6 rounded-full bg-primary/10 text-primary text-[10px] font-bold">
                 {g.generation}
               </div>
+              )}
               <div className="flex items-center gap-2 text-[10px] text-text-muted">
                 <span>Population: {g.population_size}</span>
                 <span>Elite: {g.elite_count}</span>
@@ -59,7 +80,8 @@ export function EvolutionTimeline({ generations, onGenClick }: Props) {
               </div>
             </div>
           </div>
-        ))}
+          )
+        })}
       </div>
     </div>
   )
