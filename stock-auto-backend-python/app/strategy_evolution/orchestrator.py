@@ -1,4 +1,4 @@
-import traceback
+﻿import traceback
 import asyncio
 from datetime import datetime, timedelta
 from .models import EvolutionConfig, EvolutionStatus
@@ -33,10 +33,12 @@ class EvolutionOrchestrator:
     async def start(self):
         await self.engine.initialize()
         status = await get_evolution_status()
+        status.is_running = False
+        status.status = "idle"
         if not status.last_run_at:
             status.last_run_at = datetime.utcnow().isoformat()
             status.next_scheduled_run = (datetime.utcnow() + timedelta(hours=self.config.min_generation_interval_hours)).isoformat()
-            await update_evolution_status(status)
+        await update_evolution_status(status)
         await self.scheduler.start()
 
     async def stop(self):
@@ -100,3 +102,4 @@ class EvolutionOrchestrator:
                 "generation": (status.current_generation or 0) + 1,
             })
         return await self.get_status()
+
