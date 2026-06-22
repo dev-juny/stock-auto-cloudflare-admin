@@ -46,6 +46,22 @@ class EvolutionConfig(BaseModel):
         )
 
 
+# Future: Stock Selection Evolution
+# To enable stock selection, add filter fields below and implement
+# evaluator._select_universe() to build a scored/screened universe.
+# Fields to add to StrategyParams when implementing:
+#   min_market_cap: float = 0        # Minimum market cap filter
+#   sector_filter: list[str] = []     # Target sectors (empty = all)
+#   momentum_score_weight: float = 0  # Weight for momentum ranking
+#   value_score_weight: float = 0     # Weight for value ranking
+#   quality_score_weight: float = 0   # Weight for quality ranking
+#   volatility_score_weight: float = 0# Weight for volatility ranking
+#   top_n_selection: int = 50         # Top N stocks to include
+# The evaluator would then:
+#   1. Get all tickers
+#   2. Apply filters (market_cap, sector)
+#   3. Score remaining tickers by factor model
+#   4. Select top_n_selection for the universe
 class StrategyParams(BaseModel):
     entry_type: str = "momentum"
     entry_trigger: str = "next_close"
@@ -152,51 +168,6 @@ class CrossoverResult(BaseModel):
     inherited_from_b: list[str]
 
 
-class EvolutionHolding(BaseModel):
-    stock_code: str = ""
-    stock_name: str = ""
-    market: str = ""
-    weight: float = 0.0
-    entry_price: float = 0.0
-    current_price: float = 0.0
-    return_pct: float = 0.0
-    pnl_amount: float = 0.0
-    holding_days: int = 0
-    contribution_pct: float = 0.0
-    status: str = "HOLDING"
-
-
-class EvolutionTrade(BaseModel):
-    trade_date: str = ""
-    stock_code: str = ""
-    stock_name: str = ""
-    action: str = ""
-    quantity: int = 0
-    price: float = 0.0
-    amount: float = 0.0
-    reason: str = ""
-
-
-class ContributionEntry(BaseModel):
-    stock_code: str = ""
-    stock_name: str = ""
-    contribution_pct: float = 0.0
-    return_pct: float = 0.0
-    weight_avg: float = 0.0
-
-
-class FactorScoreDetail(BaseModel):
-    momentum_score: float = 0.0
-    value_score: float = 0.0
-    quality_score: float = 0.0
-    volatility_score: float = 0.0
-    fitness_contribution: float = 0.0
-
-
-class SelectionReason(BaseModel):
-    reasons: list[str] = []
-
-
 class GenerationHistory(BaseModel):
     generation: int
     population_size: int = 0
@@ -207,25 +178,4 @@ class GenerationHistory(BaseModel):
     avg_winrate: float = 0.0
     avg_mdd: float = 0.0
     total_return: float = 0.0
-    holdings: list[EvolutionHolding] = []
-    trades: list[EvolutionTrade] = []
-    contributions: list[ContributionEntry] = []
-
-
-class CompareStockAction(BaseModel):
-    stock_code: str = ""
-    stock_name: str = ""
-    action: str = ""  # "new", "removed", "weight_changed"
-    weight_before: float = 0.0
-    weight_after: float = 0.0
-    return_before: float = 0.0
-    return_after: float = 0.0
-
-
-class CompareDetailResult(BaseModel):
-    gen_a: GenerationSummary
-    gen_b: GenerationSummary
-    stock_changes: list[CompareStockAction] = []
-    new_stocks: list[CompareStockAction] = []
-    removed_stocks: list[CompareStockAction] = []
-    changed_stocks: list[CompareStockAction] = []
+    evaluation_universe: list[dict] = []

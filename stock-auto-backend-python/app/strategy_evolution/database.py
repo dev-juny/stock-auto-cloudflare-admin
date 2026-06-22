@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import random
 from datetime import datetime
 from typing import Optional
 
@@ -77,6 +78,21 @@ async def ensure_evolution_tables():
         )
         """,
         """
+        CREATE TABLE IF NOT EXISTS evolution_evaluation_universe (
+            id NUMBER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+            generation NUMBER(5) NOT NULL,
+            ticker VARCHAR2(12) NOT NULL,
+            name VARCHAR2(200),
+            market VARCHAR2(20),
+            sample_order NUMBER(5) DEFAULT 0,
+            selection_source VARCHAR2(50) DEFAULT 'random_sample',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+        """,
+        """
+        CREATE INDEX IF NOT EXISTS idx_evo_universe_gen ON evolution_evaluation_universe(generation)
+        """,
+        """
         CREATE TABLE IF NOT EXISTS evolution_status (
             id NUMBER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
             is_running CHAR(1) DEFAULT 'N',
@@ -98,8 +114,6 @@ async def ensure_evolution_tables():
         conn.commit()
     finally:
         conn.close()
-
-    await ensure_history_tables()
 
 
 async def save_strategy(s: EvolutionStrategy) -> int:
@@ -201,6 +215,72 @@ async def save_performance(fs: FitnessScore):
         [fs.strategy_id, fs.generation, fs.total_return, fs.win_rate, fs.max_drawdown,
          fs.profit_factor, fs.total_trades, fs.fitness]
     )
+
+
+async def get_generation_universe(generation: int) -> list[dict]:
+    rows = await execute_query(
+        """SELECT ticker, name, market, sample_order, selection_source
+           FROM evolution_evaluation_universe
+           WHERE generation=:1
+           ORDER BY sample_order ASC, ticker ASC""",
+        [generation]
+    )
+    return [
+        {
+            "ticker": r[0],
+            "name": r[1] or r[0],
+            "market": r[2] or "",
+            "sample_order": int(r[3] or 0),
+            "selection_source": r[4] or "random_sample",
+        }
+        for r in rows
+    ]
+
+
+async def save_generation_universe(generation: int, universe: list[dict]):
+    conn = await acquire_conn()
+    try:
+        cur = conn.cursor()
+        cur.execute("DELETE FROM evolution_evaluation_universe WHERE generation=:1", [generation])
+        for idx, ticker in enumerate(universe, start=1):
+            cur.execute(
+                """INSERT INTO evolution_evaluation_universe
+                   (generation, ticker, name, market, sample_order, selection_source)
+                   VALUES (:1,:2,:3,:4,:5,:6)""",
+                [
+                    generation,
+                    ticker.get("ticker", ""),
+                    ticker.get("name", ""),
+                    ticker.get("market", ""),
+                    idx,
+                    ticker.get("selection_source", "random_sample"),
+                ],
+            )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+async def get_or_create_generation_universe(generation: int, sample_size: int = 50) -> list[dict]:
+    existing = await get_generation_universe(generation)
+    if existing:
+        return existing
+
+    from app.services.data_provider import get_all_tickers
+
+    tickers = await get_all_tickers()
+    random.shuffle(tickers)
+    sample = []
+    for idx, ticker in enumerate(tickers[:sample_size], start=1):
+        sample.append({
+            "ticker": ticker.get("ticker", ""),
+            "name": ticker.get("name", ticker.get("ticker", "")),
+            "market": ticker.get("market", ""),
+            "sample_order": idx,
+            "selection_source": "random_sample",
+        })
+    await save_generation_universe(generation, sample)
+    return sample
 
 
 async def get_performance(strategy_id: int, limit: int = 20) -> list[FitnessScore]:
@@ -309,12 +389,43 @@ async def compare_generations(gen_a: int, gen_b: int) -> dict:
             "avg_mdd": round(sum(abs(s.max_drawdown) for s in tested) / len(tested), 4) if tested else 0,
         }
 
+    universe_a = await get_generation_universe(gen_a)
+    universe_b = await get_generation_universe(gen_b)
+    codes_a = {u["ticker"] for u in universe_a}
+    codes_b = {u["ticker"] for u in universe_b}
+    by_a = {u["ticker"]: u for u in universe_a}
+    by_b = {u["ticker"]: u for u in universe_b}
+
+    universe_added = [
+        {
+            "ticker": code,
+            "name": by_b[code].get("name", code),
+            "market": by_b[code].get("market", ""),
+        }
+        for code in sorted(codes_b - codes_a)
+    ]
+    universe_removed = [
+        {
+            "ticker": code,
+            "name": by_a[code].get("name", code),
+            "market": by_a[code].get("market", ""),
+        }
+        for code in sorted(codes_a - codes_b)
+    ]
+
     return {
         "gen_a": {"generation": gen_a, **_summarize(strategies_a)},
         "gen_b": {"generation": gen_b, **_summarize(strategies_b)},
         "new_entries": len(new_entries),
         "removed": len(removed),
         "changed": changed,
+        "universe": {
+            "gen_a_count": len(universe_a),
+            "gen_b_count": len(universe_b),
+            "common_count": len(codes_a & codes_b),
+            "added": universe_added,
+            "removed": universe_removed,
+        },
     }
 
 
@@ -360,318 +471,7 @@ async def update_evolution_status(st: EvolutionStatus):
     )
 
 
-async def ensure_history_tables():
-    ddl = [
-        """
-        CREATE TABLE IF NOT EXISTS evolution_portfolio (
-            id NUMBER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-            generation NUMBER(5) NOT NULL,
-            strategy_id NUMBER,
-            stock_code VARCHAR2(12) NOT NULL,
-            stock_name VARCHAR2(200),
-            market VARCHAR2(20),
-            weight NUMBER(10,6) DEFAULT 0,
-            entry_price NUMBER(15,4) DEFAULT 0,
-            current_price NUMBER(15,4) DEFAULT 0,
-            return_pct NUMBER(10,4) DEFAULT 0,
-            pnl_amount NUMBER(15,4) DEFAULT 0,
-            holding_days NUMBER(6) DEFAULT 0,
-            contribution_pct NUMBER(10,4) DEFAULT 0,
-            status VARCHAR2(20) DEFAULT 'HOLDING',
-            factor_scores_json CLOB,
-            selection_reasons_json CLOB,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-        """,
-        """
-        CREATE TABLE IF NOT EXISTS evolution_trades (
-            id NUMBER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-            generation NUMBER(5) NOT NULL,
-            strategy_id NUMBER,
-            trade_date VARCHAR2(20),
-            stock_code VARCHAR2(12) NOT NULL,
-            stock_name VARCHAR2(200),
-            action VARCHAR2(20) NOT NULL,
-            quantity NUMBER(12) DEFAULT 0,
-            price NUMBER(15,4) DEFAULT 0,
-            amount NUMBER(18,4) DEFAULT 0,
-            reason VARCHAR2(500),
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-        """,
-        """
-        CREATE INDEX IF NOT EXISTS idx_evo_portfolio_gen ON evolution_portfolio(generation)
-        """,
-        """
-        CREATE INDEX IF NOT EXISTS idx_evo_trades_gen ON evolution_trades(generation)
-        """,
-    ]
-    conn = await acquire_conn()
-    try:
-        for d in ddl:
-            conn.cursor().execute(d)
-        conn.commit()
-    finally:
-        conn.close()
 
-
-async def resolve_stock_name(code: str) -> str | None:
-    rows = await execute_query(
-        "SELECT name FROM kospi_stocks WHERE ticker=:1",
-        [code]
-    )
-    if rows:
-        return rows[0][0]
-    return None
-
-
-async def resolve_stock_names(codes: list[str]) -> dict[str, str]:
-    if not codes:
-        return {}
-    placeholders = ",".join(f":{i+1}" for i in range(len(codes)))
-    rows = await execute_query(
-        f"SELECT ticker, name FROM kospi_stocks WHERE ticker IN ({placeholders})",
-        codes
-    )
-    return {r[0]: r[1] or r[0] for r in rows}
-
-
-async def get_generation_holdings(generation: int) -> list[dict]:
-    rows = await execute_query(
-        """SELECT stock_code, stock_name, market, weight, entry_price, current_price,
-                  return_pct, pnl_amount, holding_days, contribution_pct, status,
-                  factor_scores_json, selection_reasons_json
-           FROM evolution_portfolio
-           WHERE generation=:1
-           ORDER BY weight DESC""",
-        [generation]
-    )
-    result = []
-    for r in rows:
-        result.append({
-            "stock_code": r[0],
-            "stock_name": r[1] or r[0],
-            "market": r[2] or "",
-            "weight": float(r[3] or 0),
-            "entry_price": float(r[4] or 0),
-            "current_price": float(r[5] or 0),
-            "return_pct": float(r[6] or 0),
-            "pnl_amount": float(r[7] or 0),
-            "holding_days": r[8] or 0,
-            "contribution_pct": float(r[9] or 0),
-            "status": r[10] or "HOLDING",
-            "factor_scores": json.loads(r[11]) if r[11] else None,
-            "selection_reasons": json.loads(r[12]) if r[12] else None,
-        })
-    return result
-
-
-async def get_generation_trades(generation: int) -> list[dict]:
-    rows = await execute_query(
-        """SELECT trade_date, stock_code, stock_name, action, quantity, price, amount, reason
-           FROM evolution_trades
-           WHERE generation=:1
-           ORDER BY trade_date DESC, id DESC""",
-        [generation]
-    )
-    result = []
-    for r in rows:
-        result.append({
-            "trade_date": r[0] or "",
-            "stock_code": r[1],
-            "stock_name": r[2] or r[1],
-            "action": r[3],
-            "quantity": r[4] or 0,
-            "price": float(r[5] or 0),
-            "amount": float(r[6] or 0),
-            "reason": r[7] or "",
-        })
-    return result
-
-
-async def get_generation_contributions(generation: int) -> list[dict]:
-    rows = await execute_query(
-        """SELECT stock_code, stock_name, contribution_pct, return_pct, weight
-           FROM evolution_portfolio
-           WHERE generation=:1 AND contribution_pct != 0
-           ORDER BY ABS(contribution_pct) DESC""",
-        [generation]
-    )
-    result = []
-    for r in rows:
-        result.append({
-            "stock_code": r[0],
-            "stock_name": r[1] or r[0],
-            "contribution_pct": float(r[2] or 0),
-            "return_pct": float(r[3] or 0),
-            "weight_avg": float(r[4] or 0),
-        })
-    total_contrib = sum(abs(c["contribution_pct"]) for c in result)
-    return {
-        "generation": generation,
-        "total_return": sum(c["contribution_pct"] for c in result),
-        "contributions": result,
-        "total_abs": round(total_contrib, 4),
-    }
-
-
-async def seed_evolution_history():
-    """Populate evolution_portfolio and evolution_trades from existing data sources."""
-    conn = await acquire_conn()
-    try:
-        cur = conn.cursor()
-        existing = cur.execute("SELECT COUNT(*) FROM evolution_portfolio").fetchone()
-        if existing and existing[0] > 0:
-            return {"message": "History already seeded", "count": existing[0]}
-
-        gens = cur.execute(
-            "SELECT generation, population_size FROM strategy_generation ORDER BY generation"
-        ).fetchall()
-
-        active_positions = cur.execute(
-            "SELECT ticker, entry_price, quantity, highest_price, entry_date FROM active_positions"
-        ).fetchall()
-
-        trade_logs = cur.execute(
-            """SELECT ticker, action, price, quantity, reason, traded_at
-               FROM trade_logs ORDER BY traded_at DESC"""
-        ).fetchall()
-
-        name_map: dict[str, str] = {}
-
-        for gen_row in gens:
-            gen = gen_row[0]
-            pop_size = gen_row[1] or 50
-
-            strategies = cur.execute(
-                "SELECT id, name FROM strategy_pool WHERE generation=:1",
-                [gen]
-            ).fetchall()
-
-            stock_batch = []
-
-            for si, strat in enumerate(strategies):
-                sid = strat[0]
-                num_stocks = max(3, min(8, pop_size // 5))
-
-                for stock_i in range(num_stocks):
-                    if stock_i < len(active_positions):
-                        ap = active_positions[stock_i % len(active_positions)]
-                        ticker = ap[0]
-                        entry_p = float(ap[1] or 0)
-                        qty = int(ap[2] or 0)
-                        highest_p = float(ap[3] or 0)
-                        raw_date = str(ap[4] or "")
-
-                        if ticker not in name_map:
-                            name_row = cur.execute(
-                                "SELECT name FROM kospi_stocks WHERE ticker=:1",
-                                [ticker]
-                            ).fetchone()
-                            name_map[ticker] = name_row[0] if name_row else ticker
-
-                        curr_p = highest_p if highest_p > entry_p else entry_p * 1.05
-                        ret_pct = round((curr_p - entry_p) / entry_p * 100, 2) if entry_p else 0
-                        weight = round(100.0 / num_stocks, 2)
-                        holding_days = 30 + gen * 7 + stock_i * 3
-                        pnl = round((curr_p - entry_p) * qty, 2) if entry_p else 0
-                        contrib = round(ret_pct * (weight / 100.0), 4)
-
-                        status = "HOLDING"
-                        if gen > 1 and stock_i % 5 == 0:
-                            status = "SOLD"
-                        if gen > 2 and stock_i % 7 == 0:
-                            status = "REMOVED"
-
-                        factor = {
-                            "momentum_score": round(0.5 + hash(f"{gen}-{stock_i}") % 50 / 100, 2),
-                            "value_score": round(0.3 + hash(f"{gen}-{stock_i}-v") % 70 / 100, 2),
-                            "quality_score": round(0.4 + hash(f"{gen}-{stock_i}-q") % 60 / 100, 2),
-                            "volatility_score": round(0.1 + hash(f"{gen}-{stock_i}-vol") % 30 / 100, 2),
-                            "fitness_contribution": round(contrib / 10, 4),
-                        }
-                        reasons = []
-                        if factor["momentum_score"] > 0.7:
-                            reasons.append("Momentum 상위 5%")
-                        if factor["value_score"] > 0.6:
-                            reasons.append("ROE 상위 10%")
-                        if factor["volatility_score"] < 0.3:
-                            reasons.append("변동성 하위 20%")
-                        if not reasons:
-                            reasons.append("거래량 증가")
-
-                        stock_batch.append((
-                            gen, sid, ticker, name_map.get(ticker, ticker), "",
-                            weight, entry_p, curr_p, ret_pct, pnl,
-                            holding_days, contrib, status,
-                            json.dumps(factor), json.dumps(reasons)
-                        ))
-                    else:
-                        ticker = f"{900000 + stock_i * 7 + gen:06d}"
-                        name = f"Stock-{stock_i + 1}-Gen{gen}"
-
-                        price = 50000 + gen * 1000 + stock_i * 500
-                        ret_pct = round(2.0 + gen * 0.5 + stock_i * 1.2, 2)
-                        weight = round(100.0 / num_stocks, 2)
-                        holding_days = gen * 3 + stock_i
-                        contrib = round(ret_pct * (weight / 100.0), 4)
-
-                        status = "HOLDING"
-                        if gen > 1 and stock_i % 5 == 0:
-                            status = "SOLD"
-                        if gen > 2 and stock_i % 7 == 0:
-                            status = "REMOVED"
-
-                        stock_batch.append((
-                            gen, sid, ticker, name, "",
-                            weight, price, round(price * (1 + ret_pct / 100), 2),
-                            ret_pct, round(price * 100 * (ret_pct / 100), 2),
-                            holding_days, contrib, status, None, None
-                        ))
-
-            for sb in stock_batch:
-                cur.execute(
-                    """INSERT INTO evolution_portfolio (generation, strategy_id, stock_code, stock_name, market,
-                       weight, entry_price, current_price, return_pct, pnl_amount, holding_days,
-                       contribution_pct, status, factor_scores_json, selection_reasons_json)
-                       VALUES (:1,:2,:3,:4,:5,:6,:7,:8,:9,:10,:11,:12,:13,:14,:15)""",
-                    list(sb)
-                )
-
-            for ti, tl in enumerate(trade_logs[:pop_size * 2]):
-                ticker = tl[0]
-                action = tl[1]
-                price = float(tl[2] or 0)
-                qty = int(tl[3] or 0)
-                reason = tl[4] or ""
-                raw_ts = tl[5]
-                if raw_ts:
-                    if hasattr(raw_ts, 'strftime'):
-                        trade_date = raw_ts.strftime("%Y-%m-%d %H:%M:%S")
-                    else:
-                        trade_date = str(raw_ts)[:19]
-                else:
-                    trade_date = f"2026-06-{10 + gen:02d}"
-
-                if ticker not in name_map:
-                    name_row = cur.execute(
-                        "SELECT name FROM kospi_stocks WHERE ticker=:1",
-                        [ticker]
-                    ).fetchone()
-                    name_map[ticker] = name_row[0] if name_row else ticker
-
-                cur.execute(
-                    """INSERT INTO evolution_trades (generation, strategy_id, trade_date, stock_code, stock_name,
-                       action, quantity, price, amount, reason)
-                       VALUES (:1,:2,:3,:4,:5,:6,:7,:8,:9,:10)""",
-                    [gen, gen, trade_date, ticker, name_map.get(ticker, ticker),
-                     action, qty, price, round(price * qty, 2), reason]
-                )
-
-        conn.commit()
-        return {"message": "History seeded successfully", "generations": len(gens)}
-    finally:
-        conn.close()
 
 
 async def log_history(strategy_id: int, action: str, parent_id: Optional[int] = None, details: Optional[dict] = None):

@@ -1,15 +1,17 @@
 import asyncio
 import concurrent.futures
 import numpy as np
-from datetime import date, datetime, timedelta
-from collections import defaultdict
+from datetime import date, timedelta
 from typing import Any
 
 from .models import EvolutionConfig, EvolutionStrategy
-from .database import save_performance, log_history
+from .database import (
+    get_or_create_generation_universe,
+    save_performance,
+    log_history,
+)
 from .fitness import FitnessCalculator
-from app.services.data_provider import fetch_stock_data, get_all_tickers
-from app.database import execute_query
+from app.services.data_provider import fetch_stock_data
 
 
 class StrategyEvaluator:
@@ -88,13 +90,13 @@ class StrategyEvaluator:
             'total_trades': trades,
         }
 
-    async def evaluate_strategy(self, strategy: EvolutionStrategy) -> dict:
+    async def evaluate_strategy(self, strategy: EvolutionStrategy, universe: list[dict] | None = None) -> dict:
         start_dt = date.today() - timedelta(days=180)
         start_str = start_dt.isoformat()
         end_str = date.today().isoformat()
-        tickers = await get_all_tickers()
-        np.random.shuffle(tickers)
-        sample = tickers[:50]
+        sample = universe
+        if sample is None:
+            sample = await get_or_create_generation_universe(strategy.generation)
 
         loop = asyncio.get_event_loop()
         results = []
@@ -135,8 +137,12 @@ class StrategyEvaluator:
         }
 
     async def evaluate_batch(self, strategies: list[EvolutionStrategy]):
+        if not strategies:
+            return
+        generation = strategies[0].generation
+        universe = await get_or_create_generation_universe(generation)
         for strategy in strategies:
-            perf = await self.evaluate_strategy(strategy)
+            perf = await self.evaluate_strategy(strategy, universe)
             strategy.total_return = perf['total_return']
             strategy.win_rate = perf['win_rate']
             strategy.max_drawdown = perf['max_drawdown']

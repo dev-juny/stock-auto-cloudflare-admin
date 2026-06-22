@@ -36,3 +36,8 @@ export function formatUptime(s) {
     const m = Math.floor((s % 3600) / 60);
     return `${h}시간 ${m}분`;
 }
+export function formatStockDisplay(name, code) {
+    if (name && name !== code)
+        return `${name} (${code})`;
+    return code;
+}

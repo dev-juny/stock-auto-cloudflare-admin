@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
-import { api, type HistoryCompareResult, type EvolutionHolding } from '../../utils/api'
-import { X, TrendingUp, TrendingDown, Minus, Plus, ArrowUpRight, ArrowDownRight, BarChart3, Percent, Activity, Hash, ArrowLeftRight } from 'lucide-react'
+import type { ReactNode } from 'react'
+import { api, type HistoryCompareResult } from '../../utils/api'
+import { X, Minus, ArrowUpRight, ArrowDownRight, ArrowLeftRight, Plus } from 'lucide-react'
 
 interface Props {
   genA: number
@@ -20,7 +21,7 @@ export function GenerationCompare({ genA, genB, onClose }: Props) {
     setLoading(true)
     try {
       const data = await api.post<HistoryCompareResult>('/api/evolution/history/compare', {
-        generationIds: [genA, genB]
+        generationIds: [genA, genB],
       })
       setResult(data)
     } catch (e) {
@@ -39,6 +40,8 @@ export function GenerationCompare({ genA, genB, onClose }: Props) {
       </span>
     )
   }
+
+  const universe = result?.universe
 
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40" onClick={onClose}>
@@ -59,40 +62,25 @@ export function GenerationCompare({ genA, genB, onClose }: Props) {
         ) : (
           <div className="overflow-y-auto flex-1 p-4 space-y-4">
             <div className="grid grid-cols-2 gap-4">
-              <div className="bg-surface rounded-xl p-4">
-                <div className="text-[11px] font-semibold text-text-muted mb-3">Gen {genA}</div>
-                <div className="space-y-2">
-                  {[
-                    { label: 'Fitness', value: result.gen_a.avg_fitness.toFixed(2) },
-                    { label: 'Return', value: `${result.gen_a.avg_return >= 0 ? '+' : ''}${result.gen_a.avg_return.toFixed(2)}%` },
-                    { label: 'Win Rate', value: `${result.gen_a.avg_winrate.toFixed(1)}%` },
-                    { label: 'MDD', value: `${result.gen_a.avg_mdd.toFixed(2)}%` },
-                    { label: 'Strategy Count', value: String(result.gen_a.count) },
-                  ].map(({ label, value }) => (
-                    <div key={label} className="flex justify-between text-xs">
-                      <span className="text-text-muted">{label}</span>
-                      <span className="text-text font-medium">{value}</span>
-                    </div>
-                  ))}
+              {[result.gen_a, result.gen_b].map(gen => (
+                <div key={gen.generation} className="bg-surface rounded-xl p-4">
+                  <div className="text-[11px] font-semibold text-text-muted mb-3">Gen {gen.generation}</div>
+                  <div className="space-y-2">
+                    {[
+                      { label: 'Fitness', value: gen.avg_fitness.toFixed(2) },
+                      { label: 'Return', value: `${gen.avg_return >= 0 ? '+' : ''}${gen.avg_return.toFixed(2)}%` },
+                      { label: 'Win Rate', value: `${gen.avg_winrate.toFixed(1)}%` },
+                      { label: 'MDD', value: `${gen.avg_mdd.toFixed(2)}%` },
+                      { label: 'Strategies', value: String(gen.count) },
+                    ].map(({ label, value }) => (
+                      <div key={label} className="flex justify-between text-xs">
+                        <span className="text-text-muted">{label}</span>
+                        <span className="text-text font-medium">{value}</span>
+                      </div>
+                    ))}
+                  </div>
                 </div>
-              </div>
-              <div className="bg-surface rounded-xl p-4">
-                <div className="text-[11px] font-semibold text-text-muted mb-3">Gen {genB}</div>
-                <div className="space-y-2">
-                  {[
-                    { label: 'Fitness', value: result.gen_b.avg_fitness.toFixed(2) },
-                    { label: 'Return', value: `${result.gen_b.avg_return >= 0 ? '+' : ''}${result.gen_b.avg_return.toFixed(2)}%` },
-                    { label: 'Win Rate', value: `${result.gen_b.avg_winrate.toFixed(1)}%` },
-                    { label: 'MDD', value: `${result.gen_b.avg_mdd.toFixed(2)}%` },
-                    { label: 'Strategy Count', value: String(result.gen_b.count) },
-                  ].map(({ label, value }) => (
-                    <div key={label} className="flex justify-between text-xs">
-                      <span className="text-text-muted">{label}</span>
-                      <span className="text-text font-medium">{value}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
+              ))}
             </div>
 
             <div className="bg-surface rounded-xl p-4">
@@ -116,103 +104,41 @@ export function GenerationCompare({ genA, genB, onClose }: Props) {
               </div>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              {result.new_stocks.length > 0 && (
-                <div className="bg-surface rounded-xl p-4">
-                  <div className="flex items-center gap-1 text-xs text-green-400 font-medium mb-3">
-                    <Plus size={14} /> New Entries ({result.new_stocks.length})
-                  </div>
-                  <div className="space-y-1.5 max-h-40 overflow-y-auto">
-                    {result.new_stocks.map(s => (
-                      <div key={s.stock_code} className="flex items-center justify-between text-xs bg-surface-card rounded-lg px-3 py-2">
-                        <div>
-                          <span className="text-text font-medium">{s.stock_name}</span>
-                          <span className="text-text-muted ml-1.5 font-mono">{s.stock_code}</span>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <span className="text-text-muted">→ {s.weight_after.toFixed(1)}%</span>
-                          {s.return_after !== 0 && (
-                            <span className={s.return_after >= 0 ? 'text-green-400' : 'text-red-400'}>
-                              {s.return_after >= 0 ? '+' : ''}{s.return_after.toFixed(1)}%
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
+            <div className="bg-surface rounded-xl p-4">
+              <div className="flex items-center gap-1.5 mb-3">
+                <ArrowLeftRight size={12} className="text-primary" />
+                <span className="text-[10px] font-semibold text-text-muted uppercase tracking-wider">Evaluation Universe Delta</span>
+              </div>
+              <div className="grid grid-cols-3 gap-3 mb-4">
+                <div className="bg-surface-card rounded-lg p-3">
+                  <div className="text-[10px] text-text-muted mb-1">Gen {genA}</div>
+                  <div className="text-xs font-bold text-text">{universe?.gen_a_count ?? 0}</div>
                 </div>
-              )}
-
-              {result.removed_stocks.length > 0 && (
-                <div className="bg-surface rounded-xl p-4">
-                  <div className="flex items-center gap-1 text-xs text-red-400 font-medium mb-3">
-                    <Minus size={14} /> Removed ({result.removed_stocks.length})
-                  </div>
-                  <div className="space-y-1.5 max-h-40 overflow-y-auto">
-                    {result.removed_stocks.map(s => (
-                      <div key={s.stock_code} className="flex items-center justify-between text-xs bg-surface-card rounded-lg px-3 py-2">
-                        <div>
-                          <span className="text-text font-medium">{s.stock_name}</span>
-                          <span className="text-text-muted ml-1.5 font-mono">{s.stock_code}</span>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <span className="text-text-muted">{s.weight_before.toFixed(1)}% →</span>
-                          {s.return_before !== 0 && (
-                            <span className={s.return_before >= 0 ? 'text-green-400' : 'text-red-400'}>
-                              {s.return_before >= 0 ? '+' : ''}{s.return_before.toFixed(1)}%
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
+                <div className="bg-surface-card rounded-lg p-3">
+                  <div className="text-[10px] text-text-muted mb-1">Common</div>
+                  <div className="text-xs font-bold text-primary">{universe?.common_count ?? 0}</div>
                 </div>
-              )}
-            </div>
-
-            {result.changed_stocks.length > 0 && (
-              <div className="bg-surface rounded-xl p-4">
-                <div className="flex items-center gap-1.5 mb-3">
-                  <BarChart3 size={12} className="text-primary" />
-                  <span className="text-[10px] font-semibold text-text-muted uppercase tracking-wider">Weight & Return Changes ({result.changed_stocks.length})</span>
-                </div>
-                <div className="space-y-2 max-h-60 overflow-y-auto">
-                  {result.changed_stocks.map(s => (
-                    <div key={s.stock_code} className="bg-surface-card rounded-lg px-3 py-2">
-                      <div className="flex items-center justify-between mb-1.5">
-                        <div className="flex items-center gap-1.5">
-                          <span className="text-xs text-text font-medium">{s.stock_name}</span>
-                          <span className="text-[10px] text-text-muted font-mono">{s.stock_code}</span>
-                        </div>
-                      </div>
-                      <div className="grid grid-cols-2 gap-3">
-                        <div className="flex items-center gap-2 text-[11px]">
-                          <span className="text-text-muted">Weight:</span>
-                          <span className="text-text font-medium">{s.weight_before.toFixed(1)}%</span>
-                          <span className="text-text-muted text-[10px]">→</span>
-                          <span className="text-text font-medium">{s.weight_after.toFixed(1)}%</span>
-                          <Delta val={s.weight_after - s.weight_before} suffix="%" />
-                        </div>
-                        <div className="flex items-center gap-2 text-[11px]">
-                          <span className="text-text-muted">Return:</span>
-                          <span className={s.return_before >= 0 ? 'text-green-400' : 'text-red-400'}>
-                            {s.return_before >= 0 ? '+' : ''}{s.return_before.toFixed(2)}%
-                          </span>
-                          <span className="text-text-muted text-[10px]">→</span>
-                          <span className={s.return_after >= 0 ? 'text-green-400' : 'text-red-400'}>
-                            {s.return_after >= 0 ? '+' : ''}{s.return_after.toFixed(2)}%
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-                  ))}
+                <div className="bg-surface-card rounded-lg p-3">
+                  <div className="text-[10px] text-text-muted mb-1">Gen {genB}</div>
+                  <div className="text-xs font-bold text-text">{universe?.gen_b_count ?? 0}</div>
                 </div>
               </div>
-            )}
 
-            {result.new_stocks.length === 0 && result.removed_stocks.length === 0 && result.changed_stocks.length === 0 && (
-              <div className="p-6 text-center text-xs text-text-muted">No stock-level changes detected</div>
-            )}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <UniverseList
+                  title={`Only in Gen ${genB}`}
+                  icon={<Plus size={14} />}
+                  color="text-green-400"
+                  stocks={universe?.added || []}
+                />
+                <UniverseList
+                  title={`Only in Gen ${genA}`}
+                  icon={<Minus size={14} />}
+                  color="text-red-400"
+                  stocks={universe?.removed || []}
+                />
+              </div>
+            </div>
           </div>
         )}
       </div>
@@ -220,4 +146,37 @@ export function GenerationCompare({ genA, genB, onClose }: Props) {
   )
 }
 
-
+function UniverseList({
+  title,
+  icon,
+  color,
+  stocks,
+}: {
+  title: string
+  icon: ReactNode
+  color: string
+  stocks: Array<{ ticker: string; name: string; market?: string }>
+}) {
+  return (
+    <div>
+      <div className={`flex items-center gap-1 text-xs font-medium mb-3 ${color}`}>
+        {icon} {title} ({stocks.length})
+      </div>
+      {stocks.length === 0 ? (
+        <div className="p-4 text-center text-xs text-text-muted bg-surface-card rounded-lg">No differences</div>
+      ) : (
+        <div className="space-y-1.5 max-h-52 overflow-y-auto">
+          {stocks.map(stock => (
+            <div key={stock.ticker} className="flex items-center justify-between text-xs bg-surface-card rounded-lg px-3 py-2">
+              <div>
+                <span className="text-text font-medium">{stock.name}</span>
+                <span className="text-text-muted ml-1.5 font-mono">{stock.ticker}</span>
+              </div>
+              <span className="text-text-muted">{stock.market || '-'}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}

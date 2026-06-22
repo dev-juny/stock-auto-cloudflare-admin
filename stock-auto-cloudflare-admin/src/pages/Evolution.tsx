@@ -8,7 +8,7 @@ import { StrategyDetail } from '../components/evolution/StrategyDetail'
 import { GenerationDetail } from '../components/evolution/GenerationDetail'
 import { GenerationCompare } from '../components/evolution/GenerationCompare'
 import { LiveStatus } from '../components/evolution/LiveStatus'
-import { GitCompare, CheckSquare } from 'lucide-react'
+import { GitCompare, CheckSquare, Info } from 'lucide-react'
 
 export function EvolutionPage() {
   const [status, setStatus] = useState<EvolutionStatus | null>(null)
@@ -87,6 +87,14 @@ export function EvolutionPage() {
         generationCount={generations.length}
         strategyCount={strategies.length}
       />
+
+      <div className="bg-surface rounded-xl p-3 flex items-start gap-2.5">
+        <Info size={14} className="text-primary mt-0.5 shrink-0" />
+        <div className="text-[11px] text-text-muted leading-relaxed">
+          <strong className="text-text">Strategy Parameter Optimization</strong> — Evolves entry/exit parameters (entry type, stop-loss, take-profit, trailing stop) on a shared evaluation universe.
+          <strong className="text-text"> Stock selection evolution is not implemented.</strong> All strategies in a generation are tested against the same random sample of 50 tickers.
+        </div>
+      </div>
 
       <div className="flex items-center justify-between border-b border-surface-border pb-2">
         <div className="flex gap-2">
