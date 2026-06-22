@@ -7,7 +7,7 @@ from app.strategy_evolution.models import EvolutionStatus, EvolutionStrategy, Fi
 from app.strategy_evolution.database import (
     compare_generations,
     get_generation_strategies,
-    get_generation_universe,
+    get_or_create_generation_universe,
 )
 from app.services.service_db import load_evolution_config
 
@@ -100,7 +100,7 @@ async def get_generation_history(generation_id: int) -> dict:
     gen_info = next((g for g in gens if g.generation == generation_id), None)
     if not gen_info:
         raise HTTPException(404, "Generation not found")
-    universe = await get_generation_universe(generation_id)
+    universe = await get_or_create_generation_universe(generation_id)
     return {
         "generation": generation_id,
         "population_size": gen_info.population_size,
