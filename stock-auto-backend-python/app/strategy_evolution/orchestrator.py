@@ -70,6 +70,9 @@ class EvolutionOrchestrator:
         await update_evolution_status(status)
 
         try:
+            if self.config.max_generations > 0 and (status.current_generation or 0) >= self.config.max_generations:
+                raise RuntimeError(f"Max generations reached ({status.current_generation})")
+
             await self.engine.initialize()
             gen = status.current_generation + 1
             status.current_operation = f"Running generation {gen}..."

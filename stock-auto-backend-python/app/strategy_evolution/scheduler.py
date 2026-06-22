@@ -32,6 +32,19 @@ class EvolutionScheduler:
                 status = await get_evolution_status()
                 now = datetime.utcnow()
 
+                if self.config.max_generations > 0 and (status.current_generation or 0) >= self.config.max_generations:
+                    if status.status != "stopped":
+                        status.status = "stopped"
+                        status.is_running = False
+                        await update_evolution_status(status)
+                        from app.services.service_db import add_system_log
+                        await add_system_log("evolution", "scheduler", "Max generations reached", {
+                            "generation": status.current_generation,
+                            "max_generations": self.config.max_generations,
+                        })
+                    await asyncio.sleep(60)
+                    continue
+
                 should_run = False
                 if not status.is_running:
                     if status.last_run_at is None:

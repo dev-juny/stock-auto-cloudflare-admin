@@ -17,7 +17,6 @@ class EvolutionConfig(BaseModel):
     fitness_winrate_weight: float = 0.3
     fitness_mdd_penalty: float = 0.2
     min_generation_interval_hours: float = 1.0
-    elite_preserve_count: int = 5
     evolution_enabled: bool = True
     mdd_threshold: float = 10.0
     winrate_threshold: float = 45.0

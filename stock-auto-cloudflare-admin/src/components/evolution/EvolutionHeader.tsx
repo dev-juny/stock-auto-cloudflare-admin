@@ -20,14 +20,17 @@ export function EvolutionHeader({ status, onRun, onRefresh }: Props) {
             ? 'bg-amber-500/10 text-amber-500'
             : status?.status === 'error'
             ? 'bg-red-500/10 text-red-500'
+            : status?.status === 'stopped'
+            ? 'bg-slate-500/10 text-slate-400'
             : 'bg-green-500/10 text-green-500'
         }`}>
           <span className={`w-1.5 h-1.5 rounded-full ${
             status?.is_running ? 'bg-amber-500 animate-pulse' :
             status?.status === 'error' ? 'bg-red-500' :
+            status?.status === 'stopped' ? 'bg-slate-400' :
             'bg-green-500'
           }`} />
-          {status?.is_running ? 'Running' : status?.status === 'error' ? 'Error' : 'Idle'}
+          {status?.is_running ? 'Running' : status?.status === 'error' ? 'Error' : status?.status === 'stopped' ? 'Stopped' : 'Idle'}
         </span>
         <button
           onClick={onRun}

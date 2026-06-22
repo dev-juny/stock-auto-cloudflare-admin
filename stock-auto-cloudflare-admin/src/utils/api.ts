@@ -269,7 +269,6 @@ export interface EvolutionConfig {
   fitness_winrate_weight: number
   fitness_mdd_penalty: number
   min_generation_interval_hours: number
-  elite_preserve_count: number
   evolution_enabled: boolean
   mdd_threshold: number
   winrate_threshold: number

@@ -20,7 +20,7 @@ interface Settings {
   [key: string]: string | number | boolean
 }
 
-const settingMeta: Record<string, { label: string; type: 'select' | 'number' | 'boolean'; options?: string[]; min?: number; max?: number; step?: number }> = {
+const settingMeta: Record<string, { label: string; type: 'select' | 'number' | 'boolean'; options?: string[]; min?: number; max?: number; step?: number; help?: string }> = {
   backtest_interval: { label: 'Backtest Interval', type: 'select', options: ['30m', '1h', '4h', '1d'] },
   evolution_enabled: { label: 'Auto Evolution', type: 'boolean' },
   population_size: { label: 'Population Size', type: 'number', min: 10, max: 200, step: 10 },
@@ -28,7 +28,7 @@ const settingMeta: Record<string, { label: string; type: 'select' | 'number' | '
   crossover_rate: { label: 'Crossover Rate', type: 'number', min: 0, max: 1, step: 0.05 },
   elite_ratio: { label: 'Elite Ratio', type: 'number', min: 0.05, max: 0.5, step: 0.05 },
   tournament_size: { label: 'Tournament Size', type: 'number', min: 2, max: 20, step: 1 },
-  max_generations: { label: 'Max Generations', type: 'number', min: 10, max: 500, step: 10 },
+  max_generations: { label: 'Max Generations', type: 'number', min: 0, max: 500, step: 10, help: '0 = unlimited, 1+ = stop after N generations' },
   fitness_return_weight: { label: 'Fitness: Return Weight', type: 'number', min: 0, max: 1, step: 0.1 },
   fitness_winrate_weight: { label: 'Fitness: Win Rate Weight', type: 'number', min: 0, max: 1, step: 0.1 },
   fitness_mdd_penalty: { label: 'Fitness: MDD Penalty', type: 'number', min: 0, max: 1, step: 0.1 },
@@ -112,7 +112,10 @@ export default function SettingsPage() {
         <div className="divide-y divide-surface-border">
           {Object.entries(settingMeta).map(([key, meta]) => (
             <div key={key} className="px-4 py-3 flex items-center justify-between gap-4">
-              <label className="text-sm text-text">{meta.label}</label>
+              <div>
+                <label className="text-sm text-text">{meta.label}</label>
+                {meta.help && <p className="text-[10px] text-text-muted mt-0.5">{meta.help}</p>}
+              </div>
               <div className="shrink-0">
                 {meta.type === 'select' ? (
                   <select value={String(settings[key])} onChange={(e) => update(key, e.target.value)}
