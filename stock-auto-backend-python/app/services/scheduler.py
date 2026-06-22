@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import asyncio
 import json
@@ -83,7 +83,7 @@ def _to_state(row: tuple, bmc: BacktestConfig | None) -> PositionState:
 async def run_trading_loop() -> None:
     print("[SCHEDULER] Cycle start")
     bmc = await _load_active_config()
-    interval, breadth_threshold = await _load_scheduler_config()
+    interval, breadth_threshold, _ = await _load_scheduler_config()
 
     rows = await execute_query(
         "SELECT id, ticker, entry_date, entry_price, quantity, "
@@ -161,3 +161,4 @@ async def scheduler_loop() -> None:
             print(f"[SCHEDULER] Trading loop error: {e}")
 
         await asyncio.sleep(interval)
+
