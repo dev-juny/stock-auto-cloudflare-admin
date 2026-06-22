@@ -241,6 +241,7 @@ async def save_generation_universe(generation: int, universe: list[dict]):
     conn = await acquire_conn()
     try:
         cur = conn.cursor()
+        cur.execute("ROLLBACK")
         cur.execute("DELETE FROM evolution_evaluation_universe WHERE generation=:1", [generation])
         for idx, ticker in enumerate(universe, start=1):
             cur.execute(
@@ -262,64 +263,26 @@ async def save_generation_universe(generation: int, universe: list[dict]):
 
 
 async def get_or_create_generation_universe(generation: int, sample_size: int = 50) -> list[dict]:
-    from app.database import acquire_conn
+    existing = await get_generation_universe(generation)
+    if existing:
+        return existing
 
-    conn = await acquire_conn()
-    try:
-        cur = conn.cursor()
-        cur.execute(
-            """SELECT ticker, name, market, sample_order, selection_source
-               FROM evolution_evaluation_universe
-               WHERE generation=:1
-               ORDER BY sample_order ASC, ticker ASC""",
-            [generation],
-        )
-        rows = cur.fetchall()
-        if rows:
-            return [
-                {
-                    "ticker": r[0],
-                    "name": r[1] or r[0],
-                    "market": r[2] or "",
-                    "sample_order": int(r[3] or 0),
-                    "selection_source": r[4] or "random_sample",
-                }
-                for r in rows
-            ]
+    from app.services.data_provider import get_all_tickers
 
-        from app.services.data_provider import get_all_tickers
+    tickers = await get_all_tickers()
+    random.shuffle(tickers)
+    sample = []
+    for idx, ticker in enumerate(tickers[:sample_size], start=1):
+        sample.append({
+            "ticker": ticker.get("ticker", ""),
+            "name": ticker.get("name", ticker.get("ticker", "")),
+            "market": ticker.get("market", ""),
+            "sample_order": idx,
+            "selection_source": "random_sample",
+        })
 
-        tickers = await get_all_tickers()
-        random.shuffle(tickers)
-        sample = []
-        for idx, ticker in enumerate(tickers[:sample_size], start=1):
-            sample.append({
-                "ticker": ticker.get("ticker", ""),
-                "name": ticker.get("name", ticker.get("ticker", "")),
-                "market": ticker.get("market", ""),
-                "sample_order": idx,
-                "selection_source": "random_sample",
-            })
-
-        cur.execute("DELETE FROM evolution_evaluation_universe WHERE generation=:1", [generation])
-        for idx, ticker in enumerate(sample, start=1):
-            cur.execute(
-                """INSERT INTO evolution_evaluation_universe
-                   (generation, ticker, name, market, sample_order, selection_source)
-                   VALUES (:1,:2,:3,:4,:5,:6)""",
-                [
-                    generation,
-                    ticker.get("ticker", ""),
-                    ticker.get("name", ""),
-                    ticker.get("market", ""),
-                    idx,
-                    ticker.get("selection_source", "random_sample"),
-                ],
-            )
-        conn.commit()
-        return sample
-    finally:
-        conn.close()
+    await save_generation_universe(generation, sample)
+    return sample
 
 
 async def get_performance(strategy_id: int, limit: int = 20) -> list[FitnessScore]:
