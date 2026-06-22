@@ -238,28 +238,24 @@ async def get_generation_universe(generation: int) -> list[dict]:
 
 
 async def save_generation_universe(generation: int, universe: list[dict]):
-    conn = await acquire_conn()
-    try:
-        cur = conn.cursor()
-        cur.execute("ROLLBACK")
-        cur.execute("DELETE FROM evolution_evaluation_universe WHERE generation=:1", [generation])
-        for idx, ticker in enumerate(universe, start=1):
-            cur.execute(
-                """INSERT INTO evolution_evaluation_universe
-                   (generation, ticker, name, market, sample_order, selection_source)
-                   VALUES (:1,:2,:3,:4,:5,:6)""",
-                [
-                    generation,
-                    ticker.get("ticker", ""),
-                    ticker.get("name", ""),
-                    ticker.get("market", ""),
-                    idx,
-                    ticker.get("selection_source", "random_sample"),
-                ],
-            )
-        conn.commit()
-    finally:
-        conn.close()
+    await execute_non_query(
+        "DELETE FROM evolution_evaluation_universe WHERE generation=:1",
+        [generation],
+    )
+    for idx, ticker in enumerate(universe, start=1):
+        await execute_non_query(
+            """INSERT INTO evolution_evaluation_universe
+               (generation, ticker, name, market, sample_order, selection_source)
+               VALUES (:1,:2,:3,:4,:5,:6)""",
+            [
+                generation,
+                ticker.get("ticker", ""),
+                ticker.get("name", ""),
+                ticker.get("market", ""),
+                idx,
+                ticker.get("selection_source", "random_sample"),
+            ],
+        )
 
 
 async def get_or_create_generation_universe(generation: int, sample_size: int = 50) -> list[dict]:
