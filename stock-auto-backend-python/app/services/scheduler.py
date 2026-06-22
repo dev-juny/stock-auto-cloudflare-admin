@@ -3,20 +3,16 @@ from __future__ import annotations
 import asyncio
 import json
 import sys
-from datetime import date, datetime
+from datetime import datetime
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "stock-auto-backtest" / "src"))
 
 from app.database import execute_non_query, execute_query, get_pool
 from app.services.kis import kis_client
-from app.services.kospi_data import run_daily_update, upsert_prices
-from app.services.data_provider import get_all_tickers, fetch_stock_data
 from position_manager import BacktestConfig, PositionState  # type: ignore
 
 SCHEDULER_INTERVAL = 60  # seconds (overridden by DB if set)
-DAILY_UPDATE_INTERVAL = 3600
-LAST_DAILY_UPDATE: date | None = None
 
 _BREADTH_CACHE: dict = {"pct": 1.0, "at": None}
 
@@ -156,9 +152,6 @@ async def run_trading_loop() -> None:
 
 
 async def scheduler_loop() -> None:
-    global LAST_DAILY_UPDATE
-    cycles_since_daily = 0
-
     while True:
         interval, _, _ = await _load_scheduler_config()
 
@@ -166,27 +159,5 @@ async def scheduler_loop() -> None:
             await run_trading_loop()
         except Exception as e:
             print(f"[SCHEDULER] Trading loop error: {e}")
-
-        cycles_since_daily += 1
-        if cycles_since_daily >= DAILY_UPDATE_INTERVAL // interval:
-            cycles_since_daily = 0
-            try:
-                today = date.today()
-                if LAST_DAILY_UPDATE != today:
-                    print("[SCHEDULER] Running daily KOSPI data update...")
-                    stats = await run_daily_update()
-                    LAST_DAILY_UPDATE = today
-                    print(f"[SCHEDULER] Daily update: {stats}")
-                    # Delete data older than 5 years
-                    try:
-                        del_sql = "DELETE FROM stock_daily_prices WHERE trade_date < ADD_MONTHS(CURRENT_DATE, -60)"
-                        await execute_non_query(del_sql)
-                        print(f"[SCHEDULER] Cleaned up data older than 5 years")
-                    except Exception as del_e:
-                        print(f"[SCHEDULER] Cleanup error: {del_e}")
-                else:
-                    print("[SCHEDULER] Daily update already done today")
-            except Exception as e:
-                print(f"[SCHEDULER] Daily update error: {e}")
 
         await asyncio.sleep(interval)

@@ -1,8 +1,10 @@
+import traceback
 import asyncio
 from datetime import datetime, timedelta
 from .models import EvolutionConfig, EvolutionStatus
 from .database import get_evolution_status, update_evolution_status, get_strategies
 from .engine import EvolutionEngine
+from app.services.service_db import add_system_log
 
 
 class EvolutionScheduler:
@@ -37,7 +39,6 @@ class EvolutionScheduler:
                         status.status = "stopped"
                         status.is_running = False
                         await update_evolution_status(status)
-                        from app.services.service_db import add_system_log
                         await add_system_log("evolution", "scheduler", "Max generations reached", {
                             "generation": status.current_generation,
                             "max_generations": self.config.max_generations,
@@ -74,10 +75,17 @@ class EvolutionScheduler:
             except asyncio.CancelledError:
                 break
             except Exception as e:
+                tb = traceback.format_exc()
                 status = await get_evolution_status()
                 status.is_running = False
                 status.status = f"error: {str(e)[:80]}"
                 await update_evolution_status(status)
+                await add_system_log("error", "evolution_scheduler", str(e)[:200], {
+                    "exception_type": type(e).__name__,
+                    "message": str(e)[:500],
+                    "stacktrace": tb[-2000:] if tb else "",
+                    "generation": (status.current_generation or 0) + 1,
+                })
 
             await asyncio.sleep(60)
 

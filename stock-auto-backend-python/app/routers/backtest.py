@@ -1,8 +1,9 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import asyncio
 import concurrent.futures
 from collections import deque
+import threading
 import json
 import logging
 import sys
@@ -33,11 +34,42 @@ from app.services.data_provider import fetch_stock_data, get_all_tickers
 from app.services.kospi_data import upsert_prices
 from position_manager import BacktestConfig as BMC, PositionState  # type: ignore
 
+class _LimitedCandleCache:
+    def __init__(self, maxsize: int = 10):
+        self._maxsize = maxsize
+        self._data: dict[str, dict[str, list[dict]]] = {}
+        self._order: list[str] = []
+        self._lock = threading.Lock()
+
+    def setdefault(self, scan_id: str, default: dict) -> dict:
+        with self._lock:
+            if scan_id not in self._data:
+                self._data[scan_id] = default
+                self._order.append(scan_id)
+                self._evict()
+            return self._data[scan_id]
+
+    def get(self, scan_id: str, default=None):
+        return self._data.get(scan_id, default)
+
+    def pop(self, scan_id: str, default=None):
+        with self._lock:
+            if scan_id in self._data:
+                self._order.remove(scan_id)
+                return self._data.pop(scan_id)
+            return default
+
+    def _evict(self):
+        while len(self._data) > self._maxsize:
+            oldest = self._order.pop(0)
+            del self._data[oldest]
+
+
 router = APIRouter(prefix="/api/backtest", tags=["backtest"])
 
 _scan_states: dict[str, dict] = {}
 _scan_tasks: dict[str, asyncio.Task] = {}
-_scan_candle_cache: dict[str, dict[str, list[dict]]] = {}
+_scan_candle_cache: _LimitedCandleCache = _LimitedCandleCache(maxsize=10)
 _scan_cancel_flags: dict[str, bool] = {}
 _logger = logging.getLogger("backtest")
 
@@ -1370,3 +1402,4 @@ async def update_scheduler_config(data: dict) -> dict:
         [interval, threshold, upper],
     )
     return {"status": "updated", "interval_seconds": interval, "breadth_threshold": threshold, "breadth_upper": upper}
+

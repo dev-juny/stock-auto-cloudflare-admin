@@ -1,8 +1,10 @@
+import traceback
 import asyncio
 from datetime import datetime, timedelta
 from .models import EvolutionConfig, EvolutionStatus
 from .engine import EvolutionEngine
 from .scheduler import EvolutionScheduler
+from app.services.service_db import add_system_log
 from .database import (
     get_evolution_status, update_evolution_status, get_strategies,
     get_generations, get_performance, get_history, get_strategy_by_id,
@@ -86,8 +88,15 @@ class EvolutionOrchestrator:
             status.next_scheduled_run = (datetime.utcnow() + timedelta(hours=1)).isoformat()
             await update_evolution_status(status)
         except Exception as e:
+            tb = traceback.format_exc()
             status.is_running = False
             status.status = f"error: {str(e)[:80]}"
             status.current_operation = ""
             await update_evolution_status(status)
+            await add_system_log("error", "evolution_orchestrator", str(e)[:200], {
+                "exception_type": type(e).__name__,
+                "message": str(e)[:500],
+                "stacktrace": tb[-2000:] if tb else "",
+                "generation": (status.current_generation or 0) + 1,
+            })
         return await self.get_status()
