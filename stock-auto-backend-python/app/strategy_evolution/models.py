@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from datetime import datetime
 from typing import Optional
@@ -24,7 +24,7 @@ class EvolutionConfig(BaseModel):
 
     @classmethod
     def from_settings_dict(cls, d: dict) -> EvolutionConfig:
-        interval_map = {"30m": 0.5, "1h": 1, "4h": 4, "1d": 24}
+        interval_map = {"5m": 5/60, "10m": 10/60, "20m": 20/60, "30m": 0.5, "1h": 1, "4h": 4, "1d": 24}
         raw_interval = d.get("backtest_interval", "1h")
         interval_hours = interval_map.get(raw_interval, 1)
         return cls(
@@ -178,3 +178,4 @@ class GenerationHistory(BaseModel):
     avg_mdd: float = 0.0
     total_return: float = 0.0
     evaluation_universe: list[dict] = []
+
