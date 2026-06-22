@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+﻿import { useEffect, useState } from 'react'
 import { api } from '../utils/api'
 import { Save, RotateCw, RefreshCw } from 'lucide-react'
 
@@ -21,7 +21,7 @@ interface Settings {
 }
 
 const settingMeta: Record<string, { label: string; type: 'select' | 'number' | 'boolean'; options?: string[]; min?: number; max?: number; step?: number; help?: string }> = {
-  backtest_interval: { label: 'Backtest Interval', type: 'select', options: ['30m', '1h', '4h', '1d'] },
+  backtest_interval: { label: 'Backtest Interval', type: 'select', options: ['5m', '10m', '20m', '30m', '1h', '4h', '1d'] },
   evolution_enabled: { label: 'Auto Evolution', type: 'boolean' },
   population_size: { label: 'Population Size', type: 'number', min: 10, max: 200, step: 10 },
   mutation_rate: { label: 'Mutation Rate', type: 'number', min: 0, max: 1, step: 0.05 },
@@ -140,3 +140,4 @@ export default function SettingsPage() {
     </div>
   )
 }
+
