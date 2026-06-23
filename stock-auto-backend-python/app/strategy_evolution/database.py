@@ -122,7 +122,10 @@ async def ensure_evolution_tables():
     conn = await acquire_conn()
     try:
         for d in ddl:
-            conn.cursor().execute(d)
+            try:
+                conn.cursor().execute(d)
+            except Exception:
+                pass  # table/index may already exist
         conn.commit()
     finally:
         conn.close()

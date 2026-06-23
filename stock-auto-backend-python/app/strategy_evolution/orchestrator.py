@@ -45,9 +45,7 @@ class EvolutionOrchestrator:
         await self.scheduler.stop()
 
     async def get_status(self) -> EvolutionStatus:
-        st = await get_evolution_status()
-        st.active_strategies = len(await get_strategies())
-        return st
+        return await get_evolution_status()
 
     async def get_strategies(self, generation: int | None = None):
         return await get_strategies(generation=generation)
@@ -87,7 +85,7 @@ class EvolutionOrchestrator:
             status.status = "idle"
             status.current_operation = ""
             status.last_run_at = datetime.utcnow().isoformat()
-            status.next_scheduled_run = (datetime.utcnow() + timedelta(hours=1)).isoformat()
+            status.next_scheduled_run = (datetime.utcnow() + timedelta(hours=self.config.min_generation_interval_hours)).isoformat()
             await update_evolution_status(status)
         except Exception as e:
             tb = traceback.format_exc()
