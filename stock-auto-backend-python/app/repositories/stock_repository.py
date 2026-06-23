@@ -186,11 +186,15 @@ class StockRepository:
 
     # ── Scheduler History ────────────────────────────────────────
 
-    def add_scheduler_history(self, job_id: str, status: str, execution_time_ms: float = 0, message: str = ""):
+    def add_scheduler_history(self, job_id: str, status: str, execution_time_ms: float = 0, message: str = "",
+                              ticker_count: int = 0, inserted_rows: int = 0, updated_rows: int = 0,
+                              error_message: str = ""):
         sh = SchedulerHistory(
             job_id=job_id, status=status,
             start_time=date.today(), end_time=date.today(),
             execution_time_ms=execution_time_ms, message=message,
+            ticker_count=ticker_count, inserted_rows=inserted_rows,
+            updated_rows=updated_rows, error_message=error_message,
         )
         self.session.add(sh)
 

@@ -1,13 +1,18 @@
 import { jsx as _jsx, jsxs as _jsxs } from "react/jsx-runtime";
 import { useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { api } from '../../utils/api';
 import { X, Minus, ArrowUpRight, ArrowDownRight, ArrowLeftRight, Plus } from 'lucide-react';
-export function GenerationCompare({ genA, genB, onClose }) {
+function CompareContent({ genA, genB, onClose }) {
     const [result, setResult] = useState(null);
     const [loading, setLoading] = useState(true);
     useEffect(() => {
         load();
     }, [genA, genB]);
+    useEffect(() => {
+        document.body.style.overflow = 'hidden';
+        return () => { document.body.style.overflow = ''; };
+    }, []);
     async function load() {
         setLoading(true);
         try {
@@ -34,6 +39,9 @@ export function GenerationCompare({ genA, genB, onClose }) {
                                             { label: 'MDD', value: `${gen.avg_mdd.toFixed(2)}%` },
                                             { label: 'Strategies', value: String(gen.count) },
                                         ].map(({ label, value }) => (_jsxs("div", { className: "flex justify-between text-xs", children: [_jsx("span", { className: "text-text-muted", children: label }), _jsx("span", { className: "text-text font-medium", children: value })] }, label))) })] }, gen.generation))) }), _jsxs("div", { className: "bg-surface rounded-xl p-4", children: [_jsxs("div", { className: "flex items-center gap-1.5 mb-3", children: [_jsx(ArrowLeftRight, { size: 12, className: "text-primary" }), _jsx("span", { className: "text-[10px] font-semibold text-text-muted uppercase tracking-wider", children: "Performance Delta" })] }), _jsxs("div", { className: "grid grid-cols-3 gap-3", children: [_jsxs("div", { className: "bg-surface-card rounded-lg p-3", children: [_jsx("div", { className: "text-[10px] text-text-muted mb-1", children: "Return" }), _jsx(Delta, { val: result.gen_b.avg_return - result.gen_a.avg_return, suffix: "%" })] }), _jsxs("div", { className: "bg-surface-card rounded-lg p-3", children: [_jsx("div", { className: "text-[10px] text-text-muted mb-1", children: "Win Rate" }), _jsx(Delta, { val: result.gen_b.avg_winrate - result.gen_a.avg_winrate, suffix: "%" })] }), _jsxs("div", { className: "bg-surface-card rounded-lg p-3", children: [_jsx("div", { className: "text-[10px] text-text-muted mb-1", children: "Fitness" }), _jsx(Delta, { val: result.gen_b.avg_fitness - result.gen_a.avg_fitness })] })] })] }), _jsxs("div", { className: "bg-surface rounded-xl p-4", children: [_jsxs("div", { className: "flex items-center gap-1.5 mb-3", children: [_jsx(ArrowLeftRight, { size: 12, className: "text-primary" }), _jsx("span", { className: "text-[10px] font-semibold text-text-muted uppercase tracking-wider", children: "Evaluation Universe Delta" })] }), _jsxs("div", { className: "grid grid-cols-3 gap-3 mb-4", children: [_jsxs("div", { className: "bg-surface-card rounded-lg p-3", children: [_jsxs("div", { className: "text-[10px] text-text-muted mb-1", children: ["Gen ", genA] }), _jsx("div", { className: "text-xs font-bold text-text", children: universe?.gen_a_count ?? 0 })] }), _jsxs("div", { className: "bg-surface-card rounded-lg p-3", children: [_jsx("div", { className: "text-[10px] text-text-muted mb-1", children: "Common" }), _jsx("div", { className: "text-xs font-bold text-primary", children: universe?.common_count ?? 0 })] }), _jsxs("div", { className: "bg-surface-card rounded-lg p-3", children: [_jsxs("div", { className: "text-[10px] text-text-muted mb-1", children: ["Gen ", genB] }), _jsx("div", { className: "text-xs font-bold text-text", children: universe?.gen_b_count ?? 0 })] })] }), _jsxs("div", { className: "grid grid-cols-1 sm:grid-cols-2 gap-4", children: [_jsx(UniverseList, { title: `Only in Gen ${genB}`, icon: _jsx(Plus, { size: 14 }), color: "text-green-400", stocks: universe?.added || [] }), _jsx(UniverseList, { title: `Only in Gen ${genA}`, icon: _jsx(Minus, { size: 14 }), color: "text-red-400", stocks: universe?.removed || [] })] })] })] }))] }) }));
+}
+export function GenerationCompare(props) {
+    return createPortal(_jsx(CompareContent, { ...props }), document.body);
 }
 function UniverseList({ title, icon, color, stocks, }) {
     return (_jsxs("div", { children: [_jsxs("div", { className: `flex items-center gap-1 text-xs font-medium mb-3 ${color}`, children: [icon, " ", title, " (", stocks.length, ")"] }), stocks.length === 0 ? (_jsx("div", { className: "p-4 text-center text-xs text-text-muted bg-surface-card rounded-lg", children: "No differences" })) : (_jsx("div", { className: "space-y-1.5 max-h-52 overflow-y-auto", children: stocks.map(stock => (_jsxs("div", { className: "flex items-center justify-between text-xs bg-surface-card rounded-lg px-3 py-2", children: [_jsxs("div", { children: [_jsx("span", { className: "text-text font-medium", children: stock.name }), _jsx("span", { className: "text-text-muted ml-1.5 font-mono", children: stock.ticker })] }), _jsx("span", { className: "text-text-muted", children: stock.market || '-' })] }, stock.ticker))) }))] }));

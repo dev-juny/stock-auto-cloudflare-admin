@@ -11,7 +11,7 @@ from app.services.service_db import (
     update_strategy, delete_strategy, get_settings, update_setting,
     get_system_logs, add_system_log, ensure_service_tables,
 )
-from app.strategy_evolution.database import get_strategies, get_strategy_by_id, get_generations
+from app.strategy_evolution.database import get_strategies, get_strategy_by_id, get_generations, get_strategies_paginated
 
 router = APIRouter(prefix="/api", tags=["service"])
 
@@ -69,8 +69,11 @@ async def list_strategies(
     max_mdd: Optional[float] = Query(None),
 ):
     if source == "evolution":
-        strategies = await get_strategies()
-        return [s.model_dump() for s in strategies]
+        return await get_strategies_paginated(
+            offset=offset, limit=limit,
+            sort_by=sort_by, sort_dir=sort_dir,
+            search=search, generation=generation,
+        )
     filters = {k: v for k, v in {
         "is_active": is_active, "generation": generation,
         "min_return": min_return, "max_return": max_return,
@@ -125,6 +128,15 @@ async def save_settings(data: dict):
         typ = type_map.get(type(value), "string")
         await update_setting(key, value, typ)
     await add_system_log("info", "settings", "Settings updated", {"keys": list(data.keys())})
+    # Auto-reload evolution config into engine
+    try:
+        from app.routers.evolution import get_orch
+        from app.services.service_db import load_evolution_config
+        orch = get_orch()
+        new_cfg = await load_evolution_config()
+        await orch.reload_config(new_cfg)
+    except Exception as e:
+        pass  # evolution engine may not be initialized yet
     return {"message": "Settings saved"}
 
 

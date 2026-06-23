@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
+import { createPortal } from 'react-dom'
 import { api, type EvolutionStrategy, type GenerationHistory } from '../../utils/api'
 import { X, TrendingUp, Percent, Activity, Target } from 'lucide-react'
 
@@ -7,7 +8,7 @@ interface Props {
   onClose: () => void
 }
 
-export function GenerationDetail({ generation, onClose }: Props) {
+function ModalContent({ generation, onClose }: Props) {
   const [tab, setTab] = useState<'universe' | 'strategies'>('universe')
   const [strategies, setStrategies] = useState<EvolutionStrategy[]>([])
   const [history, setHistory] = useState<GenerationHistory | null>(null)
@@ -16,6 +17,11 @@ export function GenerationDetail({ generation, onClose }: Props) {
   useEffect(() => {
     load()
   }, [generation])
+
+  useEffect(() => {
+    document.body.style.overflow = 'hidden'
+    return () => { document.body.style.overflow = '' }
+  }, [])
 
   async function load() {
     setLoading(true)
@@ -74,21 +80,32 @@ export function GenerationDetail({ generation, onClose }: Props) {
               })}
             </div>
 
-            <div className="flex gap-1 px-3 py-2 border-b border-surface-border overflow-x-auto">
+            <div className="flex gap-2 px-4 border-b border-surface-border">
               {[
                 { id: 'universe', label: 'Evaluation Universe', count: universe.length },
                 { id: 'strategies', label: 'Strategies', count: strategies.length },
-              ].map(t => (
-                <button
-                  key={t.id}
-                  onClick={() => setTab(t.id as 'universe' | 'strategies')}
-                  className={`px-3 py-1 text-[11px] font-medium rounded-full whitespace-nowrap transition-colors ${
-                    tab === t.id ? 'bg-primary text-white' : 'text-text-muted hover:text-text bg-surface'
-                  }`}
-                >
-                  {t.label} {t.count > 0 && <span className="ml-1 opacity-60">({t.count})</span>}
-                </button>
-              ))}
+              ].map(t => {
+                const isActive = tab === t.id
+                return (
+                  <button
+                    key={t.id}
+                    onClick={() => setTab(t.id as 'universe' | 'strategies')}
+                    className={`relative h-9 text-xs font-medium whitespace-nowrap transition-colors px-1 ${
+                      isActive
+                        ? 'text-text'
+                        : 'text-text-muted hover:text-text'
+                    }`}
+                  >
+                    {t.label}
+                    <span className={`ml-1.5 text-[10px] px-1.5 py-0.5 rounded-full ${
+                      isActive ? 'bg-primary/15 text-primary' : 'bg-surface text-text-muted'
+                    }`}>{t.count}</span>
+                    {isActive && (
+                      <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-primary rounded-full" />
+                    )}
+                  </button>
+                )
+              })}
             </div>
 
             <div className="overflow-y-auto flex-1">
@@ -171,5 +188,12 @@ export function GenerationDetail({ generation, onClose }: Props) {
         )}
       </div>
     </div>
+  )
+}
+
+export function GenerationDetail({ generation, onClose }: Props) {
+  return createPortal(
+    <ModalContent generation={generation} onClose={onClose} />,
+    document.body
   )
 }

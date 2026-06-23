@@ -6,8 +6,6 @@ from datetime import datetime, timezone
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 
-from app.services.market_data_service import MarketDataService
-
 logger = logging.getLogger(__name__)
 
 _scheduler: AsyncIOScheduler | None = None
@@ -79,12 +77,71 @@ def add_job_to_scheduler(job_id: str, name: str, func, cron: str) -> bool:
 
 
 async def _run_market_sync():
+    import time
+    from datetime import datetime
+    from app.database_sqlalchemy import get_session_sync
+    from app.repositories.stock_repository import StockRepository
+    from app.services import kospi_data
+
     logger.info("[SCHEDULER] Running daily market data sync...")
-    service = MarketDataService()
-    stats = await _run_in_thread(service.sync_all)
-    logger.info("[SCHEDULER] Daily sync completed: %s", stats)
+    start = time.time()
+    success = True
+    message = ""
+    ticker_count = 0
+    inserted_rows = 0
+    updated_rows = 0
+    error_message = ""
+    try:
+        stats = await kospi_data.run_daily_update()
+        elapsed_ms = int((time.time() - start) * 1000)
+        if stats.get("status") == "error":
+            success = False
+            error_message = stats.get("message", "Unknown error")
+            message = f"Failed: {error_message}"
+        elif stats.get("status") == "skipped":
+            message = stats.get("message", "Up to date")
+        else:
+            ticker_count = stats.get("updated", 0)
+            inserted_rows = stats.get("rows", 0)
+            updated_rows = stats.get("updated", 0)
+            failed = stats.get("failed", 0)
+            message = f"Updated {ticker_count} tickers, {inserted_rows} rows inserted"
+            if failed:
+                message += f", {failed} failed"
+        logger.info("[SCHEDULER] Daily sync completed: %s (%dms)", stats, elapsed_ms)
+    except Exception as e:
+        elapsed_ms = int((time.time() - start) * 1000)
+        message = str(e)
+        error_message = str(e)
+        success = False
+        logger.error("[SCHEDULER] Daily sync failed: %s", e)
 
+    # Record in scheduler_history
+    try:
+        session = get_session_sync()
+        try:
+            repo = StockRepository(session)
+            repo.add_scheduler_history(
+                job_id=_JOB_ID,
+                status="SUCCESS" if success else "FAIL",
+                execution_time_ms=elapsed_ms,
+                message=message[:500],
+                ticker_count=ticker_count,
+                inserted_rows=inserted_rows,
+                updated_rows=updated_rows,
+                error_message=error_message[:500] if error_message else "",
+            )
+            # Also upsert job metadata
+            repo.upsert_scheduler_job(
+                job_id=_JOB_ID,
+                job_name="Market Data Daily Sync",
+                cron="18 30 * * *",
+                status="RUNNING",
+                description="Daily KOSPI/KOSDAQ market data sync at 18:30 KST",
+            )
+            session.commit()
+        finally:
+            session.close()
+    except Exception as log_e:
+        logger.warning("Failed to record scheduler history: %s", log_e)
 
-async def _run_in_thread(func, *args, **kwargs):
-    import asyncio
-    return await asyncio.to_thread(func, *args, **kwargs)

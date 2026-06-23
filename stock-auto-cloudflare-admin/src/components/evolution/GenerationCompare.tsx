@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { createPortal } from 'react-dom'
 import type { ReactNode } from 'react'
 import { api, type HistoryCompareResult } from '../../utils/api'
 import { X, Minus, ArrowUpRight, ArrowDownRight, ArrowLeftRight, Plus } from 'lucide-react'
@@ -9,13 +10,18 @@ interface Props {
   onClose: () => void
 }
 
-export function GenerationCompare({ genA, genB, onClose }: Props) {
+function CompareContent({ genA, genB, onClose }: Props) {
   const [result, setResult] = useState<HistoryCompareResult | null>(null)
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
     load()
   }, [genA, genB])
+
+  useEffect(() => {
+    document.body.style.overflow = 'hidden'
+    return () => { document.body.style.overflow = '' }
+  }, [])
 
   async function load() {
     setLoading(true)
@@ -144,6 +150,10 @@ export function GenerationCompare({ genA, genB, onClose }: Props) {
       </div>
     </div>
   )
+}
+
+export function GenerationCompare(props: Props) {
+  return createPortal(<CompareContent {...props} />, document.body)
 }
 
 function UniverseList({

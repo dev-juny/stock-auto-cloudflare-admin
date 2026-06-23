@@ -1,6 +1,12 @@
 import { jsx as _jsx, jsxs as _jsxs } from "react/jsx-runtime";
+import { useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { X, ShieldCheck, TrendingUp, TrendingDown, Activity, Zap, BarChart3, GitBranch } from 'lucide-react';
-export function StrategyDetail({ strategy, onClose }) {
+function DetailContent({ strategy, onClose }) {
+    useEffect(() => {
+        document.body.style.overflow = 'hidden';
+        return () => { document.body.style.overflow = ''; };
+    }, []);
     const s = strategy;
     const p = s.params;
     const ind = s.indicators;
@@ -24,6 +30,9 @@ export function StrategyDetail({ strategy, onClose }) {
                                             { label: 'Breakout', on: ind.use_breakout },
                                             { label: 'Pullback', on: ind.use_pullback },
                                         ].map((f) => (_jsxs("span", { className: `text-[10px] px-2 py-0.5 rounded-full font-medium ${f.on ? 'bg-green-500/10 text-green-400' : 'bg-surface-border/50 text-text-muted'}`, children: [f.label, ": ", f.on ? 'ON' : 'OFF'] }, f.label))) }), _jsxs("div", { className: "grid grid-cols-3 gap-1.5 mt-2", children: [_jsxs("div", { className: "bg-surface rounded-lg px-2 py-1.5 text-center", children: [_jsx("div", { className: "text-[9px] text-text-muted", children: "Momentum" }), _jsx("div", { className: "text-[11px] font-medium text-text", children: ind.momentum_period })] }), _jsxs("div", { className: "bg-surface rounded-lg px-2 py-1.5 text-center", children: [_jsx("div", { className: "text-[9px] text-text-muted", children: "Breakout" }), _jsx("div", { className: "text-[11px] font-medium text-text", children: ind.breakout_period })] }), _jsxs("div", { className: "bg-surface rounded-lg px-2 py-1.5 text-center", children: [_jsx("div", { className: "text-[9px] text-text-muted", children: "Pullback" }), _jsx("div", { className: "text-[11px] font-medium text-text", children: ind.pullback_threshold })] })] })] })), s.tags && s.tags.length > 0 && (_jsxs("div", { children: [_jsx("h4", { className: "text-xs font-semibold text-text-muted uppercase tracking-wider mb-2", children: "Tags" }), _jsx("div", { className: "flex flex-wrap gap-1", children: s.tags.map((tag, i) => (_jsx("span", { className: "text-[10px] px-1.5 py-0.5 rounded-full bg-primary/10 text-primary", children: tag }, i))) })] }))] })] })] }));
+}
+export function StrategyDetail(props) {
+    return createPortal(_jsx(DetailContent, { ...props }), document.body);
 }
 function StatCard({ label, value, color }) {
     return (_jsxs("div", { className: "bg-surface rounded-xl p-3", children: [_jsx("div", { className: "text-[10px] text-text-muted mb-0.5", children: label }), _jsx("div", { className: `text-sm font-bold ${color}`, children: value })] }));

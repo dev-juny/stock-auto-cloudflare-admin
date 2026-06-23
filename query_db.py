@@ -1,25 +1,25 @@
-import oracledb, os
-os.environ['ORACLE_WALLET_PATH'] = '/home/ubuntu/wallet'
-os.environ['TNS_ADMIN'] = '/home/ubuntu/wallet'
-os.environ['LD_LIBRARY_PATH'] = '/home/ubuntu/instantclient_19_19'
-oracledb.init_oracle_client(config_dir='/home/ubuntu/wallet')
-conn = oracledb.connect(user='ADMIN', password='!Odhfkzmfelql1379', dsn='stockdb_high')
-cur = conn.cursor()
-cur.execute("SELECT COUNT(*), MIN(trade_date), MAX(trade_date) FROM stock_daily_prices")
-row = cur.fetchone()
-print(f'Total rows: {row[0]}, Min date: {row[1]}, Max date: {row[2]}')
-cur.execute("""
-    SELECT ticker FROM stock_daily_prices 
-    WHERE trade_date >= TO_DATE('2025-12-11','YYYY-MM-DD') 
-      AND trade_date <= TO_DATE('2026-06-09','YYYY-MM-DD') 
-    GROUP BY ticker 
-    HAVING AVG(volume) > 500000 
-       AND AVG((high_price - low_price) / NULLIF(close_price, 0)) < 0.12 
-    ORDER BY AVG(volume) DESC 
-    FETCH NEXT 30 ROWS ONLY
-""")
-rows = cur.fetchall()
-print(f'Pre-filter count: {len(rows)}')
-for r in rows:
-    print(f'  {r[0]}')
-conn.close()
+import sys, asyncio
+sys.path.insert(0, '/home/ubuntu/stock-auto-backend-python/app')
+sys.path.insert(0, '/home/ubuntu/stock-auto-backend-python')
+from app.database import execute_query, init_oracle
+
+async def main():
+    await init_oracle()
+    r = await execute_query('SELECT MAX(trade_date) FROM stock_daily_prices', None)
+    print(f'MAX trade_date: {r[0][0] if r else None}')
+    r = await execute_query('SELECT COUNT(*) FROM stock_daily_prices', None)
+    print(f'Total rows: {r[0][0] if r else None}')
+    r = await execute_query('SELECT COUNT(DISTINCT ticker) FROM stock_daily_prices', None)
+    print(f'Distinct tickers: {r[0][0] if r else None}')
+    r = await execute_query('SELECT COUNT(*) FROM stock_master', None)
+    print(f'stock_master rows: {r[0][0] if r else None}')
+    r = await execute_query('SELECT COUNT(*) FROM stock_daily', None)
+    print(f'stock_daily rows: {r[0][0] if r else None}')
+    r = await execute_query('SELECT COUNT(*) FROM batch_history', None)
+    print(f'batch_history rows: {r[0][0] if r else None}')
+    r = await execute_query('SELECT COUNT(*) FROM scheduler_history WHERE job_id=:1', ['market_data_sync'])
+    print(f'scheduler_history market_data_sync rows: {r[0][0] if r else None}')
+    r = await execute_query('SELECT MAX(created_at) FROM scheduler_history WHERE job_id=:1', ['market_data_sync'])
+    print(f'scheduler_history last: {r[0][0] if r else None}')
+
+asyncio.run(main())

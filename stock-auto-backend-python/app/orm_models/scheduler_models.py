@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, Text, DateTime, BigInteger, Float, func
+from sqlalchemy import Column, String, Text, DateTime, BigInteger, Float, Integer, func
 from app.orm_models import Base
 
 
@@ -24,4 +24,8 @@ class SchedulerHistory(Base):
     status = Column(String(20), nullable=False)
     execution_time_ms = Column(Float, nullable=True)
     message = Column(Text, nullable=True)
+    ticker_count = Column(Integer, nullable=True)
+    inserted_rows = Column(Integer, nullable=True)
+    updated_rows = Column(Integer, nullable=True)
+    error_message = Column(Text, nullable=True)
     created_at = Column(DateTime, server_default=func.current_timestamp())

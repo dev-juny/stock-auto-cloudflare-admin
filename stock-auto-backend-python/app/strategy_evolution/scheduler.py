@@ -59,18 +59,63 @@ class EvolutionScheduler:
                                 should_run = True
 
                 if should_run:
+                    import time
                     status.is_running = True
                     status.status = "running"
                     await update_evolution_status(status)
                     await self.engine.initialize()
                     gen = (status.current_generation or 0) + 1
-                    await self.engine.run_generation(gen)
-                    status.current_generation = gen
-                    status.is_running = False
-                    status.status = "idle"
-                    status.last_run_at = now.isoformat()
-                    status.next_scheduled_run = (now + timedelta(hours=self.config.min_generation_interval_hours)).isoformat()
-                    await update_evolution_status(status)
+                    gen_start = time.time()
+                    try:
+                        await self.engine.run_generation(gen)
+                        elapsed_ms = int((time.time() - gen_start) * 1000)
+                        status.current_generation = gen
+                        status.is_running = False
+                        status.status = "idle"
+                        status.last_run_at = now.isoformat()
+                        status.next_scheduled_run = (now + timedelta(hours=self.config.min_generation_interval_hours)).isoformat()
+                        await update_evolution_status(status)
+                        # Record in scheduler_history via SQLAlchemy
+                        try:
+                            from app.database_sqlalchemy import get_session_sync
+                            from app.repositories.stock_repository import StockRepository
+                            session = get_session_sync()
+                            try:
+                                repo = StockRepository(session)
+                                repo.add_scheduler_history(
+                                    job_id="evolution_scheduler",
+                                    status="SUCCESS",
+                                    execution_time_ms=elapsed_ms,
+                                    message=f"Generation {gen} completed: {status.population_size} strategies" if hasattr(status, 'population_size') else f"Generation {gen} completed",
+                                )
+                                session.commit()
+                            finally:
+                                session.close()
+                        except Exception:
+                            pass
+                    except Exception as e:
+                        elapsed_ms = int((time.time() - gen_start) * 1000)
+                        status.is_running = False
+                        status.status = f"error: {str(e)[:80]}"
+                        await update_evolution_status(status)
+                        try:
+                            from app.database_sqlalchemy import get_session_sync
+                            from app.repositories.stock_repository import StockRepository
+                            session = get_session_sync()
+                            try:
+                                repo = StockRepository(session)
+                                repo.add_scheduler_history(
+                                    job_id="evolution_scheduler",
+                                    status="FAIL",
+                                    execution_time_ms=elapsed_ms,
+                                    message=f"Generation {gen} failed: {str(e)[:200]}",
+                                )
+                                session.commit()
+                            finally:
+                                session.close()
+                        except Exception:
+                            pass
+                        raise  # let the outer except handler log it
 
             except asyncio.CancelledError:
                 break

@@ -117,6 +117,25 @@ def ensure_market_tables():
                     logger.warning("Could not fix identity on %s: %s", tbl, e)
             raw.connection.commit()
             logger.info("Fixed identity columns on: %s", tables_without_identity)
+
+        # Add new columns for scheduler_history if they don't exist
+        for col_info in (
+            ("SCHEDULER_HISTORY", "TICKER_COUNT", "NUMBER"),
+            ("SCHEDULER_HISTORY", "INSERTED_ROWS", "NUMBER"),
+            ("SCHEDULER_HISTORY", "UPDATED_ROWS", "NUMBER"),
+            ("SCHEDULER_HISTORY", "ERROR_MESSAGE", "CLOB"),
+        ):
+            tbl, col, typ = col_info
+            cur.execute(
+                f"SELECT COUNT(*) FROM user_tab_columns WHERE table_name = '{tbl}' AND column_name = '{col}'"
+            )
+            if cur.fetchone()[0] == 0:
+                try:
+                    cur.execute(f"ALTER TABLE {tbl} ADD ({col} {typ})")
+                    logger.info("Added column %s.%s", tbl, col)
+                except Exception as e:
+                    logger.warning("Could not add column %s.%s: %s", tbl, col, e)
+        raw.connection.commit()
     raw.close()
 
 

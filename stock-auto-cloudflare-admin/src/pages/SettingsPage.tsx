@@ -1,6 +1,6 @@
 ﻿import { useEffect, useState } from 'react'
 import { api } from '../utils/api'
-import { Save, RotateCw, RefreshCw } from 'lucide-react'
+import { Save, RotateCw } from 'lucide-react'
 
 interface Settings {
   backtest_interval: string
@@ -64,15 +64,6 @@ export default function SettingsPage() {
     setSaving(false)
   }
 
-  async function reloadConfig() {
-    try {
-      await api.post('/api/evolution/config/reload')
-      alert('Config reloaded from DB into Evolution Engine')
-    } catch {
-      alert('Failed to reload config')
-    }
-  }
-
   function update(key: string, value: string | number | boolean) {
     if (!settings) return
     setSettings({ ...settings, [key]: value })
@@ -88,11 +79,6 @@ export default function SettingsPage() {
         <h2 className="text-lg font-bold text-text">Settings</h2>
         <div className="flex items-center gap-2">
           {saved && <span className="text-[11px] text-green-400 font-medium">Saved!</span>}
-          <button onClick={reloadConfig}
-            className="flex items-center gap-1 px-3 py-1.5 bg-surface-card text-text-muted text-xs font-medium rounded-lg border border-surface-border hover:text-text transition-colors">
-            <RefreshCw size={12} />
-            Apply to Engine
-          </button>
           <button onClick={() => { load(); setSaved(false) }}
             className="p-2 text-text-muted hover:text-text transition-colors">
             <RotateCw size={14} />

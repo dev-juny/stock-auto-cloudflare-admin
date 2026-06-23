@@ -1,3 +1,5 @@
+import { useEffect } from 'react'
+import { createPortal } from 'react-dom'
 import { X, ShieldCheck, TrendingUp, TrendingDown, Activity, Zap, BarChart3, GitBranch } from 'lucide-react'
 import type { EvolutionStrategy } from '../../utils/api'
 
@@ -6,7 +8,11 @@ interface Props {
   onClose: () => void
 }
 
-export function StrategyDetail({ strategy, onClose }: Props) {
+function DetailContent({ strategy, onClose }: Props) {
+  useEffect(() => {
+    document.body.style.overflow = 'hidden'
+    return () => { document.body.style.overflow = '' }
+  }, [])
   const s = strategy
   const p = s.params
   const ind = s.indicators
@@ -120,6 +126,10 @@ export function StrategyDetail({ strategy, onClose }: Props) {
       </div>
     </div>
   )
+}
+
+export function StrategyDetail(props: Props) {
+  return createPortal(<DetailContent {...props} />, document.body)
 }
 
 function StatCard({ label, value, color }: { label: string; value: string; color: string }) {

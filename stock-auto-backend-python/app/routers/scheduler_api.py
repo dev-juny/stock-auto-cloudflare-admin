@@ -13,6 +13,14 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/scheduler", tags=["scheduler"])
 
 
+@router.get("/market/latest-trade-date")
+async def latest_trade_date():
+    from app.database import execute_query
+    rows = await execute_query("SELECT MAX(trade_date) FROM stock_daily_prices")
+    last_date = str(rows[0][0]) if rows and rows[0][0] else None
+    return {"latest_trade_date": last_date}
+
+
 def _build_job_info(job) -> dict:
     cron = str(job.trigger) if hasattr(job, "trigger") else ""
     next_run = job.next_run_time
@@ -66,8 +74,18 @@ async def get_job_detail(job_id: str):
     try:
         repo = StockRepository(session)
         history = repo.get_job_history(job_id)
+
+        # Include latest trade date for market_data_sync
+        latest_trade_date = None
+        if job_id == "market_data_sync":
+            from app.database import execute_query
+            rows = await execute_query("SELECT MAX(trade_date) FROM stock_daily_prices")
+            if rows and rows[0][0]:
+                latest_trade_date = str(rows[0][0])
+
         return {
             **_build_job_info(job),
+            "latest_trade_date": latest_trade_date,
             "history": [
                 {
                     "id": h.id,
@@ -78,6 +96,10 @@ async def get_job_detail(job_id: str):
                     "status": h.status,
                     "execution_time_ms": h.execution_time_ms,
                     "message": h.message,
+                    "ticker_count": h.ticker_count,
+                    "inserted_rows": h.inserted_rows,
+                    "updated_rows": h.updated_rows,
+                    "error_message": h.error_message,
                 }
                 for h in history
             ],
@@ -157,3 +179,33 @@ async def scheduler_status():
         "job_count": len(jobs),
         "jobs": [_build_job_info(j) for j in jobs],
     }
+
+
+@router.get("/evolution")
+async def evolution_scheduler_status():
+    """Return Evolution scheduler status with recent history."""
+    try:
+        from app.strategy_evolution.database import get_evolution_status, get_generations
+        from app.routers.evolution import get_orch
+        status = await get_evolution_status()
+        gens = await get_generations(limit=20)
+        config = get_orch().config if get_orch() else None
+        return {
+            "status": status.model_dump(),
+            "config": config.model_dump() if config else None,
+            "recent_generations": [
+                {
+                    "generation": g.generation,
+                    "population_size": g.population_size,
+                    "avg_fitness": g.avg_fitness,
+                    "avg_return": g.avg_return,
+                    "avg_winrate": g.avg_winrate,
+                    "avg_mdd": g.avg_mdd,
+                    "created_at_kst": g.created_at_kst,
+                }
+                for g in gens
+            ],
+        }
+    except Exception as e:
+        from fastapi import HTTPException
+        raise HTTPException(503, f"Evolution scheduler not available: {str(e)}")
