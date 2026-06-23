@@ -93,6 +93,18 @@ async def ensure_evolution_tables():
         CREATE INDEX IF NOT EXISTS idx_evo_universe_gen ON evolution_evaluation_universe(generation)
         """,
         """
+        CREATE INDEX IF NOT EXISTS idx_perf_strategy_gen ON strategy_performance(strategy_id, generation DESC)
+        """,
+        """
+        CREATE INDEX IF NOT EXISTS idx_pool_alive_gen ON strategy_pool(is_alive, generation DESC, id DESC)
+        """,
+        """
+        CREATE INDEX IF NOT EXISTS idx_gen_generation ON strategy_generation(generation DESC)
+        """,
+        """
+        CREATE INDEX IF NOT EXISTS idx_perf_strategy_id ON strategy_performance(strategy_id)
+        """,
+        """
         CREATE TABLE IF NOT EXISTS evolution_status (
             id NUMBER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
             is_running CHAR(1) DEFAULT 'N',
@@ -166,6 +178,94 @@ async def get_strategies(generation: Optional[int] = None, alive_only: bool = Tr
     sql += " ORDER BY sp.generation DESC, sp.id DESC"
     rows = await execute_query(sql, binds if binds else None)
     return [_row_to_strategy(r) for r in rows]
+
+
+SORTABLE_COLUMNS_EVO = {
+    "id": "sp.id",
+    "name": "sp.name",
+    "generation": "sp.generation",
+    "fitness_score": "pf.fitness_score",
+    "total_return": "pf.total_return",
+    "win_rate": "pf.win_rate",
+    "max_drawdown": "pf.max_drawdown",
+    "total_trades": "pf.total_trades",
+}
+
+
+async def get_strategies_paginated(
+    offset: int = 0,
+    limit: int = 50,
+    sort_by: str = "fitness_score",
+    sort_dir: str = "desc",
+    search: str = "",
+    generation: Optional[int] = None,
+) -> dict:
+    sort_col = SORTABLE_COLUMNS_EVO.get(sort_by, "pf.fitness_score")
+    direction = "DESC" if sort_dir.lower() == "desc" else "ASC"
+
+    where_clauses = ["sp.is_alive='Y'"]
+    binds = []
+
+    if search:
+        where_clauses.append("(LOWER(sp.name) LIKE :search OR LOWER(sp.params_json) LIKE :search2)")
+        binds.append(f"%{search.lower()}%")
+        binds.append(f"%{search.lower()}%")
+
+    if generation is not None:
+        where_clauses.append("sp.generation=:gen")
+        binds.append(generation)
+
+    where_sql = " AND ".join(where_clauses)
+
+    count_sql = f"""SELECT COUNT(*) FROM strategy_pool sp
+                   LEFT JOIN (
+                       SELECT strategy_id, total_return, win_rate, max_drawdown, profit_factor, total_trades, fitness_score,
+                              ROW_NUMBER() OVER (PARTITION BY strategy_id ORDER BY generation DESC) rn
+                       FROM strategy_performance
+                   ) pf ON pf.strategy_id = sp.id AND pf.rn = 1
+                   WHERE {where_sql}"""
+    count_rows = await execute_query(count_sql, binds if binds else None)
+    total = count_rows[0][0] if count_rows else 0
+
+    data_sql = f"""SELECT sp.id, sp.name, sp.generation, sp.version, sp.parent_id, sp.params_json,
+                          sp.indicators_json, sp.is_alive, sp.is_elite, sp.created_at, sp.last_test_at,
+                          pf.total_return, pf.win_rate, pf.max_drawdown, pf.profit_factor, pf.total_trades, pf.fitness_score
+                   FROM strategy_pool sp
+                   LEFT JOIN (
+                       SELECT strategy_id, total_return, win_rate, max_drawdown, profit_factor, total_trades, fitness_score,
+                              ROW_NUMBER() OVER (PARTITION BY strategy_id ORDER BY generation DESC) rn
+                       FROM strategy_performance
+                   ) pf ON pf.strategy_id = sp.id AND pf.rn = 1
+                   WHERE {where_sql}
+                   ORDER BY {sort_col} {direction}
+                   OFFSET :offset ROWS FETCH NEXT :limit ROWS ONLY"""
+    data_binds = (binds if binds else []) + [offset, limit]
+    rows = await execute_query(data_sql, data_binds)
+
+    items = []
+    for r in rows:
+        try:
+            import json
+            params = json.loads(r[5] or '{}')
+        except:
+            params = {}
+        items.append({
+            "id": r[0],
+            "name": r[1] or '',
+            "generation": r[2] or 1,
+            "version": r[3] or 1,
+            "parent_id": r[4],
+            "entry_type": params.get("entry_type", ""),
+            "is_alive": r[7] == 'Y',
+            "is_elite": r[8] == 'Y',
+            "total_return": r[11] or 0,
+            "win_rate": r[12] or 0,
+            "max_drawdown": r[13] or 0,
+            "profit_factor": r[14] or 0,
+            "total_trades": r[15] or 0,
+            "fitness_score": r[16] or 0,
+        })
+    return {"items": items, "total": total, "offset": offset, "limit": limit}
 
 
 async def get_strategy_by_id(strategy_id: int) -> Optional[EvolutionStrategy]:
@@ -427,6 +527,14 @@ async def compare_generations(gen_a: int, gen_b: int) -> dict:
     }
 
 
+async def count_active_strategies() -> int:
+    rows = await execute_query(
+        "SELECT COUNT(*) FROM strategy_pool WHERE is_alive='Y'",
+        None
+    )
+    return rows[0][0] if rows else 0
+
+
 async def get_evolution_status() -> EvolutionStatus:
     rows = await execute_query(
         "SELECT is_running, current_generation, total_generations, status, current_operation, progress_pct, last_run_at, next_scheduled_run FROM evolution_status ORDER BY updated_at DESC",
@@ -445,7 +553,7 @@ async def get_evolution_status() -> EvolutionStatus:
             status=r[3] or 'idle', current_operation=r[4] or '', progress_pct=r[5] or 0,
             last_run_at=last_run, last_run_at_kst=to_kst(r[6]),
             next_scheduled_run=next_run, next_scheduled_run_kst=to_kst(r[7]),
-            active_strategies=len(await get_strategies())
+            active_strategies=await count_active_strategies()
         )
     return EvolutionStatus()
 
