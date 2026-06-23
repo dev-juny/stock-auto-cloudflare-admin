@@ -88,6 +88,56 @@ def ensure_market_tables():
                 message CLOB,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )';
+            EXECUTE IMMEDIATE 'CREATE TABLE portfolio_strategy (
+                id NUMBER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+                strategy_id NUMBER NOT NULL,
+                generation NUMBER(5) NOT NULL,
+                allocation NUMBER(10,4) DEFAULT 0,
+                status VARCHAR2(20) DEFAULT ''candidate'',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                approved_at TIMESTAMP
+            )';
+            EXECUTE IMMEDIATE 'CREATE TABLE portfolio_backtest (
+                id NUMBER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+                portfolio_id NUMBER,
+                period_start DATE NOT NULL,
+                period_end DATE NOT NULL,
+                initial_capital NUMBER(15,2) DEFAULT 10000000,
+                return_pct NUMBER(10,4) DEFAULT 0,
+                win_rate NUMBER(5,2) DEFAULT 0,
+                mdd NUMBER(10,4) DEFAULT 0,
+                sharpe_ratio NUMBER(10,4) DEFAULT 0,
+                cagr NUMBER(10,4) DEFAULT 0,
+                trade_count NUMBER(8) DEFAULT 0,
+                details_json CLOB,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )';
+            EXECUTE IMMEDIATE 'CREATE TABLE paper_positions (
+                id NUMBER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+                strategy_id NUMBER NOT NULL,
+                ticker VARCHAR2(12) NOT NULL,
+                entry_price NUMBER(15,2) NOT NULL,
+                current_price NUMBER(15,2),
+                quantity NUMBER(10) NOT NULL,
+                entry_date TIMESTAMP NOT NULL,
+                exit_date TIMESTAMP,
+                pnl_pct NUMBER(10,4) DEFAULT 0,
+                pnl_amt NUMBER(15,2) DEFAULT 0,
+                status VARCHAR2(20) DEFAULT ''open'',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )';
+            EXECUTE IMMEDIATE 'CREATE TABLE paper_trades (
+                id NUMBER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+                strategy_id NUMBER NOT NULL,
+                ticker VARCHAR2(12) NOT NULL,
+                action VARCHAR2(10) NOT NULL,
+                price NUMBER(15,2) NOT NULL,
+                quantity NUMBER(10) NOT NULL,
+                pnl_pct NUMBER(10,4) DEFAULT 0,
+                trade_date TIMESTAMP NOT NULL,
+                reason VARCHAR2(100),
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )';
         END;
         """
         try:
@@ -135,6 +185,69 @@ def ensure_market_tables():
                     logger.info("Added column %s.%s", tbl, col)
                 except Exception as e:
                     logger.warning("Could not add column %s.%s: %s", tbl, col, e)
+        raw.connection.commit()
+
+        # Create new system tables if they don't exist
+        new_tables = {
+            "PORTFOLIO_STRATEGY": """CREATE TABLE portfolio_strategy (
+                id NUMBER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+                strategy_id NUMBER NOT NULL,
+                generation NUMBER(5) NOT NULL,
+                allocation NUMBER(10,4) DEFAULT 0,
+                status VARCHAR2(20) DEFAULT 'candidate',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                approved_at TIMESTAMP
+            )""",
+            "PORTFOLIO_BACKTEST": """CREATE TABLE portfolio_backtest (
+                id NUMBER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+                portfolio_id NUMBER,
+                period_start DATE NOT NULL,
+                period_end DATE NOT NULL,
+                initial_capital NUMBER(15,2) DEFAULT 10000000,
+                return_pct NUMBER(10,4) DEFAULT 0,
+                win_rate NUMBER(5,2) DEFAULT 0,
+                mdd NUMBER(10,4) DEFAULT 0,
+                sharpe_ratio NUMBER(10,4) DEFAULT 0,
+                cagr NUMBER(10,4) DEFAULT 0,
+                trade_count NUMBER(8) DEFAULT 0,
+                details_json CLOB,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )""",
+            "PAPER_POSITIONS": """CREATE TABLE paper_positions (
+                id NUMBER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+                strategy_id NUMBER NOT NULL,
+                ticker VARCHAR2(12) NOT NULL,
+                entry_price NUMBER(15,2) NOT NULL,
+                current_price NUMBER(15,2),
+                quantity NUMBER(10) NOT NULL,
+                entry_date TIMESTAMP NOT NULL,
+                exit_date TIMESTAMP,
+                pnl_pct NUMBER(10,4) DEFAULT 0,
+                pnl_amt NUMBER(15,2) DEFAULT 0,
+                status VARCHAR2(20) DEFAULT 'open',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )""",
+            "PAPER_TRADES": """CREATE TABLE paper_trades (
+                id NUMBER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+                strategy_id NUMBER NOT NULL,
+                ticker VARCHAR2(12) NOT NULL,
+                action VARCHAR2(10) NOT NULL,
+                price NUMBER(15,2) NOT NULL,
+                quantity NUMBER(10) NOT NULL,
+                pnl_pct NUMBER(10,4) DEFAULT 0,
+                trade_date TIMESTAMP NOT NULL,
+                reason VARCHAR2(100),
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )""",
+        }
+        for tbl_name, ddl in new_tables.items():
+            cur.execute(f"SELECT COUNT(*) FROM user_tables WHERE table_name = '{tbl_name}'")
+            if cur.fetchone()[0] == 0:
+                try:
+                    cur.execute(ddl)
+                    logger.info("Created table %s", tbl_name)
+                except Exception as e:
+                    logger.warning("Could not create table %s: %s", tbl_name, e)
         raw.connection.commit()
     raw.close()
 

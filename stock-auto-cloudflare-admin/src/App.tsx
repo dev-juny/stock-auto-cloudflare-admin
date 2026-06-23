@@ -5,6 +5,7 @@ import { Dashboard } from './pages/Dashboard'
 import { EvolutionPage } from './pages/Evolution'
 import PortfolioPage from './pages/PortfolioPage'
 import StrategiesPage from './pages/StrategiesPage'
+import PaperTradingPage from './pages/PaperTradingPage'
 import LogsPage from './pages/LogsPage'
 import SettingsPage from './pages/SettingsPage'
 import SchedulerPage from './pages/scheduler/SchedulerPage'
@@ -38,6 +39,7 @@ export default function App() {
         {activeTab === 'portfolio' && <PortfolioPage />}
         {activeTab === 'evolution' && <EvolutionPage />}
         {activeTab === 'strategy' && <StrategiesPage />}
+        {activeTab === 'paper-trading' && <PaperTradingPage />}
         {activeTab === 'logs' && <LogsPage />}
         {activeTab === 'settings' && <SettingsPage />}
         {activeTab === 'scheduler' && <SchedulerPage />}
