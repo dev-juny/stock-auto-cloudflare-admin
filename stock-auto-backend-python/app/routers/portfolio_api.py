@@ -67,25 +67,23 @@ async def add_to_portfolio(data: dict):
 
 @router.patch("/strategies/{portfolio_id}")
 async def update_portfolio_strategy(portfolio_id: int, data: dict):
-    sets = []
+    allocation = data.get("allocation")
+    status = data.get("status")
+    if allocation is None and status is None:
+        raise HTTPException(400, "allocation or status required")
+    parts = []
     binds = []
-    for key in ("allocation", "status"):
-        if key in data:
-            sets.append(f"{key} = :{len(binds) + 1}")
-            binds.append(data[key])
-    if data.get("status") == "approved":
-        sets.append("approved_at = CURRENT_TIMESTAMP")
-    if not sets:
-        raise HTTPException(400, "No fields to update")
-    sets.append("id = :" + str(len(binds) + 1))
+    if allocation is not None:
+        parts.append("allocation = :1")
+        binds.append(allocation)
+    if status is not None:
+        parts.append("status = :2")
+        binds.append(status)
+    if status == "approved":
+        parts.append("approved_at = CURRENT_TIMESTAMP")
     binds.append(portfolio_id)
-    sql = f"UPDATE portfolio_strategy SET {', '.join(sets)} WHERE id = :{len(binds)}"
-    binds = binds[:-1] + [binds[-1]]
-    # simpler: build manually
-    await execute_non_query(
-        f"UPDATE portfolio_strategy SET allocation = :1, status = :2 WHERE id = :3",
-        [data.get("allocation", 0), data.get("status", ""), portfolio_id],
-    )
+    sql = f"UPDATE portfolio_strategy SET {', '.join(parts)} WHERE id = :{len(binds)}"
+    await execute_non_query(sql, binds)
     return {"message": "Updated"}
 
 

@@ -1,7 +1,7 @@
 const pickBackend = (pathname: string, baseUrl: string, pythonUrl: string): string => {
   const base = baseUrl.replace(/\/+$/, '');
   const py = pythonUrl.replace(/\/+$/, '');
-  if (pathname.startsWith('/api/backtest') || pathname.startsWith('/api/positions') || pathname.startsWith('/api/evolution') || pathname.startsWith('/api/portfolio') || pathname.startsWith('/api/strategies') || pathname.startsWith('/api/settings') || pathname.startsWith('/api/logs') || pathname.startsWith('/api/system') || pathname.startsWith('/api/market') || pathname.startsWith('/api/scheduler')) {
+  if (pathname.startsWith('/api/backtest') || pathname.startsWith('/api/positions') || pathname.startsWith('/api/evolution') || pathname.startsWith('/api/portfolio') || pathname.startsWith('/api/strategies') || pathname.startsWith('/api/paper-trading') || pathname.startsWith('/api/settings') || pathname.startsWith('/api/logs') || pathname.startsWith('/api/system') || pathname.startsWith('/api/market') || pathname.startsWith('/api/scheduler')) {
     return `${py}${pathname}`;
   }
   return `${base}${pathname}`;

@@ -134,6 +134,7 @@ def ensure_market_tables():
                 price NUMBER(15,2) NOT NULL,
                 quantity NUMBER(10) NOT NULL,
                 pnl_pct NUMBER(10,4) DEFAULT 0,
+                pnl_amt NUMBER(15,2) DEFAULT 0,
                 trade_date TIMESTAMP NOT NULL,
                 reason VARCHAR2(100),
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -235,6 +236,7 @@ def ensure_market_tables():
                 price NUMBER(15,2) NOT NULL,
                 quantity NUMBER(10) NOT NULL,
                 pnl_pct NUMBER(10,4) DEFAULT 0,
+                pnl_amt NUMBER(15,2) DEFAULT 0,
                 trade_date TIMESTAMP NOT NULL,
                 reason VARCHAR2(100),
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -248,6 +250,20 @@ def ensure_market_tables():
                     logger.info("Created table %s", tbl_name)
                 except Exception as e:
                     logger.warning("Could not create table %s: %s", tbl_name, e)
+        raw.connection.commit()
+
+        # Add missing columns to existing tables
+        col_migrations = [
+            ("PAPER_TRADES", "PNL_AMT", "NUMBER(15,2) DEFAULT 0"),
+        ]
+        for tbl, col, typ in col_migrations:
+            cur.execute(f"SELECT COUNT(*) FROM user_tab_columns WHERE table_name = '{tbl}' AND column_name = '{col}'")
+            if cur.fetchone()[0] == 0:
+                try:
+                    cur.execute(f"ALTER TABLE {tbl} ADD ({col} {typ})")
+                    logger.info("Added column %s.%s", tbl, col)
+                except Exception as e:
+                    logger.warning("Could not add column %s.%s: %s", tbl, col, e)
         raw.connection.commit()
     raw.close()
 
