@@ -92,6 +92,13 @@ async def _run_market_sync():
     updated_rows = 0
     error_message = ""
     try:
+        # Ensure kospi_stocks has tickers before daily update
+        from app.database import execute_query
+        ticker_rows = await execute_query("SELECT COUNT(*) FROM kospi_stocks")
+        ticker_count_db = ticker_rows[0][0] if ticker_rows else 0
+        if ticker_count_db == 0:
+            logger.info("[SCHEDULER] kospi_stocks empty, syncing tickers first...")
+            await kospi_data.sync_kospi_tickers()
         stats = await kospi_data.run_daily_update()
         elapsed_ms = int((time.time() - start) * 1000)
         if stats.get("status") == "error":

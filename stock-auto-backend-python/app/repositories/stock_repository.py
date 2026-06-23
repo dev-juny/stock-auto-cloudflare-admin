@@ -189,9 +189,16 @@ class StockRepository:
     def add_scheduler_history(self, job_id: str, status: str, execution_time_ms: float = 0, message: str = "",
                               ticker_count: int = 0, inserted_rows: int = 0, updated_rows: int = 0,
                               error_message: str = ""):
+        from datetime import datetime
+        # Get next ID since identity column may not be set up properly
+        result = self.session.execute(
+            text("SELECT NVL(MAX(id), 0) + 1 FROM scheduler_history")
+        )
+        next_id = result.scalar()
         sh = SchedulerHistory(
+            id=next_id,
             job_id=job_id, status=status,
-            start_time=date.today(), end_time=date.today(),
+            start_time=datetime.now(), end_time=datetime.now(),
             execution_time_ms=execution_time_ms, message=message,
             ticker_count=ticker_count, inserted_rows=inserted_rows,
             updated_rows=updated_rows, error_message=error_message,
