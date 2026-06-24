@@ -109,8 +109,8 @@ async def execute_signals(data: dict):
             result = await _broker.place_order(req)
             await execute_non_query(
                 """INSERT INTO paper_positions (strategy_id, ticker, entry_price, current_price, quantity, entry_date, status)
-                   VALUES (:1, :2, :3, :3, :4, CURRENT_TIMESTAMP, 'open')""",
-                [strategy_id, ticker, price, qty],
+                   VALUES (:1, :2, :3, :4, :5, CURRENT_TIMESTAMP, 'open')""",
+                [strategy_id, ticker, price, price, qty],
             )
             await execute_non_query(
                 """INSERT INTO paper_trades (strategy_id, ticker, action, price, quantity, trade_date, reason)
