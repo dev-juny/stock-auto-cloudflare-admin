@@ -38,12 +38,8 @@ async def get_top_strategies(
     count_sql = """
         SELECT COUNT(*)
         FROM strategy_pool sp
-        JOIN (
-            SELECT strategy_id, total_return, win_rate, max_drawdown, profit_factor,
-                   total_trades, fitness_score,
-                   ROW_NUMBER() OVER (PARTITION BY strategy_id ORDER BY generation DESC) rn
-            FROM strategy_performance
-        ) pf ON pf.strategy_id = sp.id AND pf.rn = 1
+        JOIN strategy_performance pf ON pf.strategy_id = sp.id
+          AND pf.generation = (SELECT MAX(pf2.generation) FROM strategy_performance pf2 WHERE pf2.strategy_id = sp.id)
         WHERE sp.is_alive = 'Y'
           AND pf.fitness_score >= :1
           AND pf.win_rate >= :2
@@ -60,12 +56,8 @@ async def get_top_strategies(
                pf.total_return, pf.win_rate, pf.max_drawdown, pf.profit_factor,
                pf.total_trades, pf.fitness_score
         FROM strategy_pool sp
-        JOIN (
-            SELECT strategy_id, total_return, win_rate, max_drawdown, profit_factor,
-                   total_trades, fitness_score,
-                   ROW_NUMBER() OVER (PARTITION BY strategy_id ORDER BY generation DESC) rn
-            FROM strategy_performance
-        ) pf ON pf.strategy_id = sp.id AND pf.rn = 1
+        JOIN strategy_performance pf ON pf.strategy_id = sp.id
+          AND pf.generation = (SELECT MAX(pf2.generation) FROM strategy_performance pf2 WHERE pf2.strategy_id = sp.id)
         WHERE sp.is_alive = 'Y'
           AND pf.fitness_score >= :1
           AND pf.win_rate >= :2
@@ -118,12 +110,8 @@ async def get_top_strategy_detail(strategy_id: int):
                   pf.total_return, pf.win_rate, pf.max_drawdown, pf.profit_factor,
                   pf.total_trades, pf.fitness_score
            FROM strategy_pool sp
-           LEFT JOIN (
-               SELECT strategy_id, total_return, win_rate, max_drawdown, profit_factor,
-                      total_trades, fitness_score,
-                      ROW_NUMBER() OVER (PARTITION BY strategy_id ORDER BY generation DESC) rn
-               FROM strategy_performance
-           ) pf ON pf.strategy_id = sp.id AND pf.rn = 1
+           INNER JOIN strategy_performance pf ON pf.strategy_id = sp.id
+             AND pf.generation = (SELECT MAX(pf2.generation) FROM strategy_performance pf2 WHERE pf2.strategy_id = sp.id)
            WHERE sp.id = :1""",
         [strategy_id],
     )

@@ -166,11 +166,8 @@ async def get_strategies(generation: Optional[int] = None, alive_only: bool = Tr
                     sp.indicators_json, sp.is_alive, sp.is_elite, sp.created_at, sp.last_test_at,
                     pf.total_return, pf.win_rate, pf.max_drawdown, pf.profit_factor, pf.total_trades, pf.fitness_score
              FROM strategy_pool sp
-             LEFT JOIN (
-                 SELECT strategy_id, total_return, win_rate, max_drawdown, profit_factor, total_trades, fitness_score,
-                        ROW_NUMBER() OVER (PARTITION BY strategy_id ORDER BY generation DESC) rn
-                 FROM strategy_performance
-             ) pf ON pf.strategy_id = sp.id AND pf.rn = 1
+             LEFT JOIN strategy_performance pf ON pf.strategy_id = sp.id
+               AND pf.generation = (SELECT MAX(pf2.generation) FROM strategy_performance pf2 WHERE pf2.strategy_id = sp.id)
              WHERE 1=1"""
     binds = []
     if alive_only:
@@ -234,11 +231,8 @@ async def get_strategies_paginated(
                           sp.indicators_json, sp.is_alive, sp.is_elite, sp.created_at, sp.last_test_at,
                           pf.total_return, pf.win_rate, pf.max_drawdown, pf.profit_factor, pf.total_trades, pf.fitness_score
                    FROM strategy_pool sp
-                   LEFT JOIN (
-                       SELECT strategy_id, total_return, win_rate, max_drawdown, profit_factor, total_trades, fitness_score,
-                              ROW_NUMBER() OVER (PARTITION BY strategy_id ORDER BY generation DESC) rn
-                       FROM strategy_performance
-                   ) pf ON pf.strategy_id = sp.id AND pf.rn = 1
+                   LEFT JOIN strategy_performance pf ON pf.strategy_id = sp.id
+                     AND pf.generation = (SELECT MAX(pf2.generation) FROM strategy_performance pf2 WHERE pf2.strategy_id = sp.id)
                    WHERE {where_sql}
                    ORDER BY {sort_col} {direction}
                    OFFSET :offset ROWS FETCH NEXT :limit ROWS ONLY"""
@@ -277,11 +271,8 @@ async def get_strategy_by_id(strategy_id: int) -> Optional[EvolutionStrategy]:
                   sp.indicators_json, sp.is_alive, sp.is_elite, sp.created_at, sp.last_test_at,
                   pf.total_return, pf.win_rate, pf.max_drawdown, pf.profit_factor, pf.total_trades, pf.fitness_score
            FROM strategy_pool sp
-           LEFT JOIN (
-               SELECT strategy_id, total_return, win_rate, max_drawdown, profit_factor, total_trades, fitness_score,
-                      ROW_NUMBER() OVER (PARTITION BY strategy_id ORDER BY generation DESC) rn
-               FROM strategy_performance
-           ) pf ON pf.strategy_id = sp.id AND pf.rn = 1
+           LEFT JOIN strategy_performance pf ON pf.strategy_id = sp.id
+             AND pf.generation = (SELECT MAX(pf2.generation) FROM strategy_performance pf2 WHERE pf2.strategy_id = sp.id)
            WHERE sp.id=:1""",
         [strategy_id]
     )
@@ -446,12 +437,8 @@ async def get_generation_strategies(generation: int) -> list[EvolutionStrategy]:
                   pf.total_return, pf.win_rate, pf.max_drawdown,
                   pf.profit_factor, pf.total_trades, pf.fitness_score
            FROM strategy_pool sp
-           LEFT JOIN (
-               SELECT strategy_id, total_return, win_rate, max_drawdown,
-                      profit_factor, total_trades, fitness_score,
-                      ROW_NUMBER() OVER (PARTITION BY strategy_id ORDER BY generation DESC) rn
-               FROM strategy_performance
-           ) pf ON pf.strategy_id = sp.id AND pf.rn = 1
+           LEFT JOIN strategy_performance pf ON pf.strategy_id = sp.id
+             AND pf.generation = (SELECT MAX(pf2.generation) FROM strategy_performance pf2 WHERE pf2.strategy_id = sp.id)
            WHERE sp.generation=:1
            ORDER BY pf.fitness_score DESC NULLS LAST""",
         [generation]

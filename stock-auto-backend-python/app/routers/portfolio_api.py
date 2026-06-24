@@ -20,11 +20,8 @@ async def get_portfolio_strategies():
                   ps.created_at, ps.approved_at,
                   pf.total_return, pf.win_rate, pf.max_drawdown, pf.fitness_score, pf.total_trades
            FROM portfolio_strategy ps
-           LEFT JOIN (
-               SELECT strategy_id, total_return, win_rate, max_drawdown, fitness_score, total_trades,
-                      ROW_NUMBER() OVER (PARTITION BY strategy_id ORDER BY generation DESC) rn
-               FROM strategy_performance
-           ) pf ON pf.strategy_id = ps.strategy_id AND pf.rn = 1
+           LEFT JOIN strategy_performance pf ON pf.strategy_id = ps.strategy_id
+             AND pf.generation = (SELECT MAX(pf2.generation) FROM strategy_performance pf2 WHERE pf2.strategy_id = ps.strategy_id)
            ORDER BY ps.created_at DESC"""
     )
     total_allocation = 0
