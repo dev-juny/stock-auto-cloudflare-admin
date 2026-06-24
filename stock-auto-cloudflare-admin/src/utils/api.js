@@ -22,7 +22,10 @@ async function request(path, opts = {}) {
         headers['Content-Type'] = headers['Content-Type'] || 'application/json';
     }
     const res = await fetch(`${BASE}${path}`, { ...opts, headers, credentials: 'include' });
-    return res.json();
+    const body = await res.json();
+    if (!res.ok)
+        throw new Error(body?.detail?.[0]?.msg || body?.detail || `HTTP ${res.status}`);
+    return body;
 }
 export const api = {
     get: (path) => request(path),

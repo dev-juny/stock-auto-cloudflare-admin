@@ -112,8 +112,8 @@ export default function PortfolioPage() {
   }
 
   const totalAlloc = strategies?.total_allocation || 0
-  const maxVal = btResult ? Math.max(...btResult.daily_values.map(d => d.value), btResult.initial_capital) : 0
-  const minVal = btResult ? Math.min(...btResult.daily_values.map(d => d.value), btResult.initial_capital) : 0
+  const maxVal = btResult?.daily_values?.length ? Math.max(...btResult.daily_values.map(d => d.value), btResult.initial_capital) : 0
+  const minVal = btResult?.daily_values?.length ? Math.min(...btResult.daily_values.map(d => d.value), btResult.initial_capital) : 0
 
   return (
     <div className="space-y-4">
@@ -253,7 +253,7 @@ export default function PortfolioPage() {
                     </div>
                   </div>
 
-                  {btResult.daily_values.length > 1 && (
+                  {btResult?.daily_values?.length > 1 && (
                     <div className="bg-surface rounded-xl p-3">
                       <h4 className="text-[10px] font-semibold text-text-muted uppercase tracking-wider mb-2">Equity Curve</h4>
                       <div className="flex items-end gap-0.5 h-24">

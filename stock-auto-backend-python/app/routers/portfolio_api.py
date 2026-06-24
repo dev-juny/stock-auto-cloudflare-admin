@@ -96,23 +96,30 @@ async def remove_from_portfolio(portfolio_id: int):
 # ── Portfolio Backtest ──────────────────────────────────────────
 
 
-async def _get_price_at(ticker: str, trade_date: date) -> Optional[float]:
+async def _get_prices_batch(tickers: list[str], start: date, end: date) -> dict[str, dict[str, float]]:
+    """Preload all daily prices for all tickers in one query. Returns {ticker: {date_str: price}}"""
+    if not tickers:
+        return {}
+    binds = [start.isoformat(), end.isoformat()] + tickers
+    placeholders = ", ".join(f":{i+3}" for i in range(len(tickers)))
     rows = await execute_query(
-        "SELECT close_price FROM stock_daily_prices WHERE ticker = :1 AND trade_date = TO_DATE(:2, 'YYYY-MM-DD')",
-        [ticker, trade_date.isoformat()],
+        f"""SELECT ticker, trade_date, close_price
+            FROM stock_daily_prices
+            WHERE trade_date >= TO_DATE(:1, 'YYYY-MM-DD')
+              AND trade_date <= TO_DATE(:2, 'YYYY-MM-DD')
+              AND ticker IN ({placeholders})
+            ORDER BY trade_date ASC""",
+        binds,
     )
-    return float(rows[0][0]) if rows and rows[0][0] else None
-
-
-async def _get_prices_between(ticker: str, start: date, end: date) -> list[dict]:
-    rows = await execute_query(
-        """SELECT trade_date, close_price
-           FROM stock_daily_prices
-           WHERE ticker = :1 AND trade_date >= TO_DATE(:2, 'YYYY-MM-DD') AND trade_date <= TO_DATE(:3, 'YYYY-MM-DD')
-           ORDER BY trade_date ASC""",
-        [ticker, start.isoformat(), end.isoformat()],
-    )
-    return [{"date": str(r[0]), "close": float(r[1])} for r in rows]
+    result: dict[str, dict[str, float]] = {}
+    for r in rows:
+        t = r[0]
+        d = str(r[1]) if r[1] else ""
+        p = float(r[2]) if r[2] else 0
+        if t not in result:
+            result[t] = {}
+        result[t][d] = p
+    return result
 
 
 @router.post("/backtest")
@@ -167,6 +174,21 @@ async def run_portfolio_backtest(data: dict):
                 all_signals[ticker] = []
             all_signals[ticker].append({"strategy_id": sid, "weight": weight, "generation": gen})
 
+    # Preload all prices for all tickers across the entire period
+    all_tickers = list(all_signals.keys())
+    price_map = await _get_prices_batch(all_tickers, start_date, end_date)
+    # Build date-ordered list of trading days that have any price data
+    trading_dates: list[str] = []
+    date_set: set[str] = set()
+    for t, days in price_map.items():
+        for d in days:
+            if d not in date_set:
+                date_set.add(d)
+                trading_dates.append(d)
+    trading_dates.sort()
+    if not trading_dates:
+        raise HTTPException(400, "No price data available for the selected period")
+
     # Simulate portfolio backtest
     capital = initial_capital
     cash = capital
@@ -178,16 +200,10 @@ async def run_portfolio_backtest(data: dict):
     peak_capital = capital
     max_drawdown = 0
 
-    current_date = start_date
-    while current_date <= end_date:
-        if current_date.weekday() >= 5:
-            current_date += timedelta(days=1)
-            continue
-
-        # Check entry signals (simplified: buy at start if price exists)
+    for date_str in trading_dates:
         portfolio_value = cash
         for ticker, signals in all_signals.items():
-            price = await _get_price_at(ticker, current_date)
+            price = price_map.get(ticker, {}).get(date_str)
             if not price:
                 continue
             total_weight = sum(s["weight"] for s in signals)
@@ -195,11 +211,10 @@ async def run_portfolio_backtest(data: dict):
                 alloc_amount = capital * total_weight
                 qty = int(alloc_amount / price)
                 if qty > 0 and alloc_amount <= cash:
-                    positions[ticker] = {"qty": qty, "entry": price, "entry_date": current_date}
+                    positions[ticker] = {"qty": qty, "entry": price, "entry_date": date_str}
                     cash -= qty * price
                     trade_count += 1
 
-            # Update position value
             if ticker in positions:
                 pos = positions[ticker]
                 current_val = pos["qty"] * price
@@ -207,17 +222,8 @@ async def run_portfolio_backtest(data: dict):
                 pnl_pct = (current_val - entry_val) / entry_val * 100
                 portfolio_value += current_val
 
-                # Exit if > 0 (simplified: hold through period)
-                if current_date == end_date or current_date.weekday() == 4:
-                    if pnl_pct > 0:
-                        total_wins += 1
-                    else:
-                        total_losses += 1
-                    cash += current_val
-                    del positions[ticker]
-
         daily_values.append({
-            "date": current_date.isoformat(),
+            "date": date_str,
             "value": round(portfolio_value, 2),
         })
         if portfolio_value > peak_capital:
@@ -225,15 +231,12 @@ async def run_portfolio_backtest(data: dict):
         dd = (peak_capital - portfolio_value) / peak_capital * 100
         if dd > max_drawdown:
             max_drawdown = dd
-        current_date += timedelta(days=1)
 
-    final_value = cash + sum(
-        pos["qty"] * (await _get_price_at(ticker, end_date) or pos["entry"])
-        for ticker, pos in positions.items()
-    )
-    for ticker in list(positions.keys()):
-        price = await _get_price_at(ticker, end_date) or 0
-        cash += positions[ticker]["qty"] * price
+    final_value = cash
+    for ticker, pos in positions.items():
+        price = price_map.get(ticker, {}).get(trading_dates[-1], pos["entry"])
+        final_value += pos["qty"] * price
+        cash += pos["qty"] * price
         trade_count += 1
 
     total_return = (final_value - initial_capital) / initial_capital * 100
