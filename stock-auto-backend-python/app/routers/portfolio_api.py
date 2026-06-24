@@ -238,6 +238,11 @@ async def run_portfolio_backtest(data: dict):
         final_value += pos["qty"] * price
         cash += pos["qty"] * price
         trade_count += 1
+        pnl = (price - pos["entry"]) / pos["entry"] * 100
+        if pnl > 0:
+            total_wins += 1
+        else:
+            total_losses += 1
 
     total_return = (final_value - initial_capital) / initial_capital * 100
     win_rate = (total_wins / (total_wins + total_losses) * 100) if (total_wins + total_losses) > 0 else 0
