@@ -298,6 +298,102 @@ export interface GenerationHistory {
   evaluation_universe: EvaluationUniverseStock[]
 }
 
+export interface RiskCheckResult {
+  risk_status: string
+  blocked: boolean
+  reasons: string[]
+  max_drawdown: number
+  current_drawdown: number
+  daily_pnl: number
+  daily_loss_limit: number
+  daily_profit_lock: number
+  loss_limit_breached: boolean
+  profit_lock_breached: boolean
+}
+
+export interface PromotionEntry {
+  id: number
+  strategy_id: number
+  strategy_name: string
+  action: string
+  fitness: number
+  reason: string
+  promoted_at: string
+}
+
+export interface PromotionHistoryResponse {
+  items: PromotionEntry[]
+  total: number
+}
+
+export interface ValidationStatus {
+  active: boolean
+  started_at: string | null
+  days_elapsed: number
+  total_return: number
+  current_mdd: number
+  win_rate: number
+  daily_logs: ValidationDailyLog[]
+}
+
+export interface ValidationDailyLog {
+  log_date: string
+  daily_return: number
+  cumulative_return: number
+  cumulative_mdd: number
+  win_rate: number
+  total_trades: number
+}
+
+export interface ValidationReport {
+  total_return: number
+  benchmark_return: number
+  alpha: number
+  win_rate: number
+  profit_factor: number
+  sharpe: number
+  mdd: number
+  verdict: string
+  reasons: string[]
+}
+
+export interface LiveTradingReadiness {
+  ready: boolean
+  checks: LiveTradingCheck[]
+}
+
+export interface LiveTradingCheck {
+  name: string
+  passed: boolean
+  actual: number
+  threshold: number
+  detail: string
+}
+
+export interface RebalanceEntry {
+  id: number
+  method: string
+  before: string
+  after: string
+  executed_at: string
+}
+
+export interface SystemHealth {
+  database: string
+  active_sessions: number
+  cache_entries: number
+  table_count: number
+  uptime_hours: number
+  status: string
+}
+
+export interface SchedulerStatus {
+  apscheduler: { running: boolean; jobs: number }
+  paper_trading: { running: boolean; running_since: string | null }
+  evolution: { running: boolean; current_generation: number }
+  total_active_strategies: number
+}
+
 export interface HistoryCompareResult {
   gen_a: { generation: number; count: number; avg_return: number; avg_winrate: number; avg_fitness: number; avg_mdd: number }
   gen_b: { generation: number; count: number; avg_return: number; avg_winrate: number; avg_fitness: number; avg_mdd: number }

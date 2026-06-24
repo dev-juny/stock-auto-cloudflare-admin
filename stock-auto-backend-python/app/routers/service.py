@@ -12,6 +12,14 @@ from app.services.service_db import (
     get_system_logs, add_system_log, ensure_service_tables,
 )
 from app.strategy_evolution.database import get_strategies, get_strategy_by_id, get_generations, get_strategies_paginated
+from app.services.operations_service import (
+    get_portfolio_health, get_evolution_dashboard, get_paper_performance,
+    auto_promote_strategies, get_risk_settings, update_risk_setting, check_risk_limits,
+    get_promotion_history, rebalance_portfolio, get_rebalance_history,
+    get_scheduler_status, get_system_health,
+    start_validation, stop_validation, get_validation_status,
+    check_live_trading_readiness,
+)
 
 router = APIRouter(prefix="/api", tags=["service"])
 
@@ -172,3 +180,104 @@ async def system_status():
         "active_strategies": strategy_count,
         "total_generations": gen_count,
     }
+
+
+@router.get("/portfolio/health")
+async def portfolio_health():
+    """Portfolio Health Dashboard metrics."""
+    return await get_portfolio_health()
+
+
+@router.get("/evolution/dashboard")
+async def evolution_dashboard():
+    """Evolution Monitoring Dashboard."""
+    return await get_evolution_dashboard()
+
+
+
+@router.post("/portfolio/auto-promote")
+async def portfolio_auto_promote():
+    """Auto-promote candidate strategies that meet criteria."""
+    return await auto_promote_strategies()
+
+
+@router.get("/risk/settings")
+async def risk_settings():
+    """Get risk management settings."""
+    return await get_risk_settings()
+
+
+@router.post("/risk/settings")
+async def save_risk_settings(data: dict):
+    """Update a single risk setting."""
+    for key in ("max_portfolio_allocation", "max_position_allocation", "daily_loss_limit", "daily_profit_lock", "risk_mode"):
+        if key in data:
+            await update_risk_setting(key, data[key])
+    return await get_risk_settings()
+
+
+@router.get("/risk/check")
+async def risk_check():
+    """Check if any risk limits are breached."""
+    return await check_risk_limits()
+
+
+@router.get("/portfolio/promotion-history")
+async def promotion_history(limit: int = Query(50)):
+    """Get auto-promotion history."""
+    return await get_promotion_history(limit)
+
+
+@router.post("/portfolio/rebalance")
+async def portfolio_rebalance(data: dict):
+    """Rebalance portfolio (TOP3 or TOP5)."""
+    method = data.get("method", "TOP3")
+    return await rebalance_portfolio(method)
+
+
+@router.get("/portfolio/rebalance-history")
+async def rebalance_history(limit: int = Query(20)):
+    """Get rebalance history."""
+    return await get_rebalance_history(limit)
+
+
+@router.get("/paper-trading/performance")
+async def paper_trading_performance(period: str = Query("ALL", pattern="^(ALL|7D|30D|90D)$")):
+    """Paper Trading Performance with period filter & equity curve."""
+    return await get_paper_performance(period)
+
+
+@router.get("/scheduler/status")
+async def scheduler_monitoring():
+    """Unified scheduler monitoring dashboard."""
+    return await get_scheduler_status()
+
+
+@router.get("/system/health")
+async def system_health():
+    """System health & resource monitoring."""
+    return await get_system_health()
+
+
+@router.post("/validation/start")
+async def validation_start():
+    """Start 30-day paper trading validation."""
+    return await start_validation()
+
+
+@router.post("/validation/stop")
+async def validation_stop():
+    """Stop validation and generate report."""
+    return await stop_validation()
+
+
+@router.get("/validation/status")
+async def validation_status():
+    """Get validation mode status & daily log."""
+    return await get_validation_status()
+
+
+@router.get("/live-trading/readiness")
+async def live_trading_readiness():
+    """Check if all conditions met for live trading."""
+    return await check_live_trading_readiness()

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import json
+import json as json_mod
 import logging
 from datetime import date, datetime, timedelta
 from typing import Optional
@@ -8,6 +8,8 @@ from typing import Optional
 from fastapi import APIRouter, HTTPException, Query
 
 from app.database import execute_query, execute_non_query
+
+from app.services.operations_service import get_portfolio_health
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/portfolio", tags=["portfolio"])
@@ -18,10 +20,13 @@ async def get_portfolio_strategies():
     rows = await execute_query(
         """SELECT ps.id, ps.strategy_id, ps.generation, ps.allocation, ps.status,
                   ps.created_at, ps.approved_at,
-                  pf.total_return, pf.win_rate, pf.max_drawdown, pf.fitness_score, pf.total_trades
+                  pf.total_return, pf.win_rate, pf.max_drawdown, pf.fitness_score, pf.total_trades,
+                  sp.last_test_at,
+                  (SELECT COUNT(*) FROM evolution_evaluation_universe eu WHERE eu.generation = ps.generation) AS universe_size
            FROM portfolio_strategy ps
            LEFT JOIN strategy_performance pf ON pf.strategy_id = ps.strategy_id
              AND pf.generation = (SELECT MAX(pf2.generation) FROM strategy_performance pf2 WHERE pf2.strategy_id = ps.strategy_id)
+           LEFT JOIN strategy_pool sp ON sp.id = ps.strategy_id
            ORDER BY ps.created_at DESC"""
     )
     total_allocation = 0
@@ -42,6 +47,8 @@ async def get_portfolio_strategies():
             "win_rate": float(r[8] or 0),
             "mdd": float(abs(r[9] or 0)),
             "total_trades": int(r[11] or 0),
+            "last_evaluated": str(r[12]) if len(r) > 12 and r[12] else "",
+            "universe_size": int(r[13]) if len(r) > 13 and r[13] else 0,
         })
     return {"items": items, "total_allocation": total_allocation}
 
@@ -125,9 +132,11 @@ async def _get_prices_batch(tickers: list[str], start: date, end: date) -> dict[
 @router.post("/backtest")
 async def run_portfolio_backtest(data: dict):
     period = data.get("period", "1y")
-    universe = data.get("universe", "KOSPI")
     initial_capital = float(data.get("initial_capital", 10000000))
     strategy_limit = min(int(data.get("strategy_limit", 5)), 5)
+    slippage_pct = float(data.get("slippage_pct", 0.05)) / 100  # user enters as %, convert to decimal
+    commission_pct = float(data.get("commission_pct", 0.015)) / 100
+    tax_pct = float(data.get("tax_pct", 0.18)) / 100
 
     # Determine date range
     end_date = date.today()
@@ -154,14 +163,26 @@ async def run_portfolio_backtest(data: dict):
     if not strategies:
         raise HTTPException(400, "No strategies in portfolio")
 
-    # Limit to strategy_limit
     strategies = strategies[:strategy_limit]
     total_alloc = sum(float(s[3] or 0) for s in strategies) or 1
 
-    # For each strategy, get the universe stocks it evaluated
+    # Build ticker → weight & strategy mapping across all strategies
     all_signals: dict[str, list[dict]] = {}
+    # Pre-load strategy params for exit conditions
+    strategy_params_map: dict[int, dict] = {}
     for s in strategies:
         sid, gen, alloc = s[1], s[2], float(s[3] or 0) / total_alloc
+        if sid not in strategy_params_map:
+            rows = await execute_query(
+                "SELECT params_json FROM strategy_pool WHERE id = :1", [sid],
+            )
+            if rows and rows[0][0]:
+                try:
+                    strategy_params_map[sid] = json_mod.loads(rows[0][0])
+                except (json_mod.JSONDecodeError, TypeError):
+                    strategy_params_map[sid] = {}
+            else:
+                strategy_params_map[sid] = {}
         universe_stocks = await execute_query(
             """SELECT ticker FROM evolution_evaluation_universe
                WHERE generation = :1 ORDER BY sample_order ASC""",
@@ -174,10 +195,40 @@ async def run_portfolio_backtest(data: dict):
                 all_signals[ticker] = []
             all_signals[ticker].append({"strategy_id": sid, "weight": weight, "generation": gen})
 
-    # Preload all prices for all tickers across the entire period
     all_tickers = list(all_signals.keys())
+    # Load benchmark data (KOSPI)
+    benchmark_prices: dict[str, float] = {}
+    benchmark_row = await execute_query(
+        "SELECT close_price FROM index_daily WHERE index_code = 'KOSPI' AND trade_date >= :1 AND trade_date <= :2 ORDER BY trade_date ASC",
+        [start_date.isoformat(), end_date.isoformat()],
+    )
+    if benchmark_row:
+        benchmark_prices = {str(r[0]): float(r[1]) for r in await execute_query(
+            """SELECT trade_date, close_price FROM index_daily
+               WHERE index_code = 'KOSPI'
+               AND trade_date >= TO_DATE(:1, 'YYYY-MM-DD')
+               AND trade_date <= TO_DATE(:2, 'YYYY-MM-DD')
+               ORDER BY trade_date ASC""",
+            [start_date.isoformat(), end_date.isoformat()],
+        )}
+    # KOSDAQ
+    kospi_prices = benchmark_prices
+    kosdaq_prices = {}
+    kosdaq_row = await execute_query(
+        "SELECT close_price FROM index_daily WHERE index_code = 'KOSDAQ' AND trade_date >= :1 AND trade_date <= :2 ORDER BY trade_date ASC FETCH FIRST 1 ROW ONLY",
+        [start_date.isoformat(), end_date.isoformat()],
+    )
+    if kosdaq_row:
+        kosdaq_prices = {str(r[0]): float(r[1]) for r in await execute_query(
+            """SELECT trade_date, close_price FROM index_daily
+               WHERE index_code = 'KOSDAQ'
+               AND trade_date >= TO_DATE(:1, 'YYYY-MM-DD')
+               AND trade_date <= TO_DATE(:2, 'YYYY-MM-DD')
+               ORDER BY trade_date ASC""",
+            [start_date.isoformat(), end_date.isoformat()],
+        )}
     price_map = await _get_prices_batch(all_tickers, start_date, end_date)
-    # Build date-ordered list of trading days that have any price data
+
     trading_dates: list[str] = []
     date_set: set[str] = set()
     for t, days in price_map.items():
@@ -189,60 +240,155 @@ async def run_portfolio_backtest(data: dict):
     if not trading_dates:
         raise HTTPException(400, "No price data available for the selected period")
 
-    # Simulate portfolio backtest
-    capital = initial_capital
-    cash = capital
+    # Pre-compute entry plan: on first day a ticker has price data, enter position
+    entry_plan: list[tuple[str, float, str]] = []  # (ticker, weight, entry_date)
+    for ticker, signals in all_signals.items():
+        w = sum(s["weight"] for s in signals)
+        for d in trading_dates:
+            if price_map.get(ticker, {}).get(d):
+                entry_plan.append((ticker, w, d))
+                break
+
+    # Sort entry plan by weight descending so higher-conviction tickers enter first
+    entry_plan.sort(key=lambda x: -x[1])
+
+    # Pre-compute per-ticker exit params (aggregate across strategies)
+    ticker_exit_params: dict[str, dict] = {}
+    for ticker, signals in all_signals.items():
+        sl = 0.0
+        tp = 0.0
+        ta = 0.0
+        ts = 0.0
+        for sig in signals:
+            p = strategy_params_map.get(sig["strategy_id"], {})
+            sl = max(sl, float(p.get("stop_loss_pct", 0)))
+            tp = max(tp, float(p.get("fixed_take_profit_pct", 0)))
+            ta = max(ta, float(p.get("trailing_activation_pct", 0)))
+            ts = max(ts, float(p.get("trailing_stop_pct", 0)))
+        ticker_exit_params[ticker] = {
+            "stop_loss_pct": sl,
+            "take_profit_pct": tp,
+            "trailing_activation_pct": ta,
+            "trailing_stop_pct": ts,
+        }
+
+    cash = initial_capital
     positions: dict[str, dict] = {}
     trade_count = 0
     daily_values: list[dict] = []
     total_wins = 0
     total_losses = 0
-    peak_capital = capital
+    peak_capital = initial_capital
     max_drawdown = 0
+    entry_idx = 0
 
     for date_str in trading_dates:
-        portfolio_value = cash
-        for ticker, signals in all_signals.items():
+        # Enter new positions scheduled for this date
+        while entry_idx < len(entry_plan) and entry_plan[entry_idx][2] == date_str:
+            ticker, weight, _ = entry_plan[entry_idx]
+            if ticker not in positions and weight > 0:
+                price = price_map.get(ticker, {}).get(date_str, 0)
+                if price > 0:
+                    alloc_amount = cash * weight
+                    cost_with_fees = alloc_amount * (1 + commission_pct)
+                    qty = int(alloc_amount / price)
+                    if qty > 0 and cost_with_fees <= cash:
+                        buy_price = price * (1 + slippage_pct)
+                        buy_cost = qty * buy_price
+                        fees = buy_cost * commission_pct
+                        params = ticker_exit_params.get(ticker, {})
+                        positions[ticker] = {
+                            "qty": qty, "entry": buy_price, "entry_date": date_str,
+                            "highest": price,
+                            "stop_loss_pct": params.get("stop_loss_pct", 0),
+                            "take_profit_pct": params.get("take_profit_pct", 0),
+                            "trailing_activation_pct": params.get("trailing_activation_pct", 0),
+                            "trailing_stop_pct": params.get("trailing_stop_pct", 0),
+                        }
+                        cash -= buy_cost + fees
+                        trade_count += 1
+                        logger.info(
+                            "[BACKTEST] ENTRY %s @ %.0f (qty=%d, weight=%.2f%%, sl=%.1f%%, tp=%.1f%%)",
+                            ticker, price, qty, weight * 100,
+                            params.get("stop_loss_pct", 0) * 100,
+                            params.get("take_profit_pct", 0) * 100,
+                        )
+            entry_idx += 1
+
+        # Check exit conditions for all open positions
+        for ticker in list(positions.keys()):
+            pos = positions[ticker]
             price = price_map.get(ticker, {}).get(date_str)
-            if not price:
+            if price is None:
                 continue
-            total_weight = sum(s["weight"] for s in signals)
-            if ticker not in positions and total_weight > 0:
-                alloc_amount = capital * total_weight
-                qty = int(alloc_amount / price)
-                if qty > 0 and alloc_amount <= cash:
-                    positions[ticker] = {"qty": qty, "entry": price, "entry_date": date_str}
-                    cash -= qty * price
-                    trade_count += 1
+            pos["highest"] = max(pos["highest"], price)
+            sl = pos["stop_loss_pct"]
+            tp = pos["take_profit_pct"]
+            ta = pos["trailing_activation_pct"]
+            ts = pos["trailing_stop_pct"]
 
-            if ticker in positions:
-                pos = positions[ticker]
-                current_val = pos["qty"] * price
-                entry_val = pos["qty"] * pos["entry"]
-                pnl_pct = (current_val - entry_val) / entry_val * 100
-                portfolio_value += current_val
+            exit_reason = None
+            if sl > 0 and price <= pos["entry"] * (1 - sl):
+                exit_reason = "stop_loss"
+            elif tp > 0 and price >= pos["entry"] * (1 + tp):
+                exit_reason = "take_profit"
+            elif ts > 0 and pos["highest"] > pos["entry"] * (1 + ta):
+                trailing_price = pos["highest"] * (1 - ts)
+                if price <= trailing_price:
+                    exit_reason = "trailing_stop"
 
-        daily_values.append({
-            "date": date_str,
-            "value": round(portfolio_value, 2),
-        })
+            if exit_reason:
+                proceeds = pos["qty"] * price * (1 - slippage_pct)
+                sell_fees = proceeds * (commission_pct + tax_pct)
+                cash += proceeds - sell_fees
+                pnl_pct = ((proceeds - sell_fees) - (pos["qty"] * pos["entry"])) / (pos["qty"] * pos["entry"]) * 100
+                trade_count += 1
+                if pnl_pct > 0:
+                    total_wins += 1
+                else:
+                    total_losses += 1
+                logger.info(
+                    "[BACKTEST] EXIT %s @ %.0f (%s, pnl=%.1f%%)",
+                    ticker, price, exit_reason, pnl_pct,
+                )
+                del positions[ticker]
+
+        # Calculate portfolio_value = cash + sum(positions market value)
+        portfolio_value = cash
+        for ticker, pos in positions.items():
+            price = price_map.get(ticker, {}).get(date_str)
+            if price:
+                portfolio_value += pos["qty"] * price
+
+        daily_values.append({"date": date_str, "value": round(portfolio_value, 2)})
+
         if portfolio_value > peak_capital:
             peak_capital = portfolio_value
         dd = (peak_capital - portfolio_value) / peak_capital * 100
         if dd > max_drawdown:
             max_drawdown = dd
 
-    final_value = cash
-    for ticker, pos in positions.items():
-        price = price_map.get(ticker, {}).get(trading_dates[-1], pos["entry"])
-        final_value += pos["qty"] * price
-        cash += pos["qty"] * price
+    # Liquidate remaining positions at end of period
+    for ticker, pos in list(positions.items()):
+        last_price = price_map.get(ticker, {}).get(trading_dates[-1])
+        if not last_price:
+            last_price = pos["entry"]
+        proceeds = pos["qty"] * last_price * (1 - slippage_pct)
+        sell_fees = proceeds * (commission_pct + tax_pct)
+        cash += proceeds - sell_fees
         trade_count += 1
-        pnl = (price - pos["entry"]) / pos["entry"] * 100
-        if pnl > 0:
+        pnl_pct = ((proceeds - sell_fees) - (pos["qty"] * pos["entry"])) / (pos["qty"] * pos["entry"]) * 100
+        if pnl_pct > 0:
             total_wins += 1
         else:
             total_losses += 1
+        logger.info(
+            "[BACKTEST] FINAL_LIQUIDATE %s @ %.0f (pnl=%.1f%%)",
+            ticker, last_price, pnl_pct,
+        )
+        del positions[ticker]
+
+    final_value = cash
 
     total_return = (final_value - initial_capital) / initial_capital * 100
     win_rate = (total_wins / (total_wins + total_losses) * 100) if (total_wins + total_losses) > 0 else 0
@@ -250,21 +396,57 @@ async def run_portfolio_backtest(data: dict):
     days = (end_date - start_date).days
     cagr = ((final_value / initial_capital) ** (365 / max(days, 1)) - 1) * 100 if days > 0 else 0
 
-    # Sharpe ratio (simplified)
+    # Sharpe ratio (annualized)
     returns = []
     for i in range(1, len(daily_values)):
-        r = (daily_values[i]["value"] - daily_values[i - 1]["value"]) / daily_values[i - 1]["value"]
-        returns.append(r)
+        prev = daily_values[i - 1]["value"]
+        if prev > 0:
+            r = (daily_values[i]["value"] - prev) / prev
+            returns.append(r)
     avg_return = sum(returns) / max(len(returns), 1) if returns else 0
-    std_return = (sum((r - avg_return) ** 2 for r in returns) / max(len(returns), 1)) ** 0.5 if returns else 1
+    variance = sum((r - avg_return) ** 2 for r in returns) / max(len(returns), 1) if returns else 0
+    std_return = variance ** 0.5 if variance > 0 else 0
     sharpe = (avg_return / max(std_return, 0.0001)) * (252 ** 0.5) if std_return > 0 else 0
 
-    # Save result
-    import json as json_mod
+    # Benchmark return
+    benchmark_return = 0
+    benchmark_cagr = 0
+    benchmark_mdd = 0
+    if kospi_prices:
+        b_dates = sorted(kospi_prices.keys())
+        if len(b_dates) >= 2:
+            b_start = kospi_prices[b_dates[0]]
+            b_end = kospi_prices[b_dates[-1]]
+            benchmark_return = (b_end - b_start) / b_start * 100 if b_start > 0 else 0
+            benchmark_cagr = ((b_end / b_start) ** (365 / max(days, 1)) - 1) * 100 if b_start > 0 and days > 0 else 0
+            # Benchmark MDD
+            b_peak = b_start
+            b_mdd = 0
+            for bd in b_dates:
+                bp = kospi_prices[bd]
+                if bp > b_peak:
+                    b_peak = bp
+                dd = (b_peak - bp) / b_peak * 100
+                if dd > b_mdd:
+                    b_mdd = dd
+            benchmark_mdd = b_mdd
+    alpha = total_return - benchmark_return
+
     details = json_mod.dumps({
         "daily_values": daily_values,
         "strategies_tested": len(strategies),
         "tickers_in_universe": len(all_signals),
+        "benchmark": {
+            "benchmark_return": round(benchmark_return, 2),
+            "benchmark_cagr": round(benchmark_cagr, 2),
+            "benchmark_mdd": round(benchmark_mdd, 2),
+            "alpha": round(alpha, 2),
+        },
+        "costs": {
+            "total_commission_pct": commission_pct * 100,
+            "total_tax_pct": tax_pct * 100,
+            "total_slippage_pct": slippage_pct * 100,
+        },
     })
     await execute_non_query(
         """INSERT INTO portfolio_backtest (portfolio_id, period_start, period_end, initial_capital,
@@ -287,6 +469,13 @@ async def run_portfolio_backtest(data: dict):
         "daily_values": daily_values,
         "strategies_tested": len(strategies),
         "tickers_screened": len(all_signals),
+        "benchmark_return": round(benchmark_return, 2),
+        "benchmark_cagr": round(benchmark_cagr, 2),
+        "benchmark_mdd": round(benchmark_mdd, 2),
+        "alpha": round(alpha, 2),
+        "commission_pct": round(commission_pct * 100, 3),
+        "tax_pct": round(tax_pct * 100, 3),
+        "slippage_pct": round(slippage_pct * 100, 3),
     }
 
 

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import asyncio
+import logging
+import sys
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -11,6 +13,7 @@ from app.database import init_oracle, close_oracle
 from app.routers import backtest, positions, evolution, service, market_api, scheduler_api, strategies_api, portfolio_api, paper_trading
 from app.services.scheduler import scheduler_loop
 from app.services.market_scheduler import start_scheduler, stop_scheduler
+from app.services.paper_trading_scheduler import start_paper_trading_scheduler, stop_paper_trading_scheduler
 from app.services.market_data_service import ensure_market_tables
 from app.database_sqlalchemy import init_sqlalchemy, close_sqlalchemy
 from app.strategy_evolution import EvolutionOrchestrator, EvolutionConfig
@@ -32,6 +35,7 @@ async def lifespan(app: FastAPI):
     init_sqlalchemy()
     ensure_market_tables()
     start_scheduler()
+    start_paper_trading_scheduler()
     task = asyncio.create_task(scheduler_loop())
     cfg = await load_evolution_config()
     global _orch_task, _orchestrator
@@ -44,10 +48,17 @@ async def lifespan(app: FastAPI):
     await orch.stop()
     if _orch_task:
         _orch_task.cancel()
+    stop_paper_trading_scheduler()
     stop_scheduler()
     close_sqlalchemy()
     await close_oracle()
 
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    stream=sys.stdout,
+)
 
 app = FastAPI(title="Stock Auto Backend", version="0.1.0", lifespan=lifespan)
 

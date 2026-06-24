@@ -123,6 +123,7 @@ def ensure_market_tables():
                 exit_date TIMESTAMP,
                 pnl_pct NUMBER(10,4) DEFAULT 0,
                 pnl_amt NUMBER(15,2) DEFAULT 0,
+                highest_price NUMBER(15,2),
                 status VARCHAR2(20) DEFAULT ''open'',
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )';
@@ -225,6 +226,7 @@ def ensure_market_tables():
                 exit_date TIMESTAMP,
                 pnl_pct NUMBER(10,4) DEFAULT 0,
                 pnl_amt NUMBER(15,2) DEFAULT 0,
+                highest_price NUMBER(15,2),
                 status VARCHAR2(20) DEFAULT 'open',
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )""",
@@ -253,8 +255,56 @@ def ensure_market_tables():
         raw.connection.commit()
 
         # Add missing columns to existing tables
+        # Create new system tables if they don't exist
+        for tbl_name, ddl in {
+            "PROMOTION_HISTORY": """CREATE TABLE promotion_history (
+                id NUMBER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+                strategy_id NUMBER NOT NULL,
+                old_status VARCHAR2(20),
+                new_status VARCHAR2(20) NOT NULL,
+                reason VARCHAR2(200),
+                fitness_before NUMBER(10,4),
+                fitness_after NUMBER(10,4),
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )""",
+            "VALIDATION_MODE": """CREATE TABLE validation_mode (
+                id NUMBER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+                is_active CHAR(1) DEFAULT 'Y',
+                started_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                completed_at TIMESTAMP,
+                result CLOB,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )""",
+            "VALIDATION_DAILY_LOG": """CREATE TABLE validation_daily_log (
+                id NUMBER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+                validation_id NUMBER NOT NULL,
+                log_date DATE NOT NULL,
+                daily_return NUMBER(10,4) DEFAULT 0,
+                cumulative_return NUMBER(10,4) DEFAULT 0,
+                mdd NUMBER(10,4) DEFAULT 0,
+                win_rate NUMBER(5,2) DEFAULT 0,
+                total_trades NUMBER(8) DEFAULT 0,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )""",
+            "PORTFOLIO_REBALANCE_HISTORY": """CREATE TABLE portfolio_rebalance_history (
+                id NUMBER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+                rebalance_type VARCHAR2(20) NOT NULL,
+                before_json CLOB,
+                after_json CLOB,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )""",
+        }.items():
+            cur.execute(f"SELECT COUNT(*) FROM user_tables WHERE table_name = '{tbl_name}'")
+            if cur.fetchone()[0] == 0:
+                try:
+                    cur.execute(ddl)
+                    logger.info("Created table %s", tbl_name)
+                except Exception as e:
+                    logger.warning("Could not create table %s: %s", tbl_name, e)
+
         col_migrations = [
             ("PAPER_TRADES", "PNL_AMT", "NUMBER(15,2) DEFAULT 0"),
+            ("PAPER_POSITIONS", "HIGHEST_PRICE", "NUMBER(15,2)"),
         ]
         for tbl, col, typ in col_migrations:
             cur.execute(f"SELECT COUNT(*) FROM user_tab_columns WHERE table_name = '{tbl}' AND column_name = '{col}'")

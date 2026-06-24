@@ -16,7 +16,14 @@ SORTABLE_COLUMNS = {
     "return": "pf.total_return",
     "win_rate": "pf.win_rate",
     "mdd": "pf.max_drawdown",
+    "sharpe": "pf.profit_factor",
     "generation": "sp.generation",
+}
+
+FILTER_COLUMNS = {
+    "approved": "ps.status = 'approved'",
+    "candidate": "ps.status = 'candidate'",
+    "disabled": "ps.status = 'disabled'",
 }
 
 
@@ -101,6 +108,55 @@ async def get_top_strategies(
             "ranking_candidate_limit": ranking_limit,
         })
     return {"items": items, "total": total, "offset": offset, "limit": limit}
+
+
+@router.get("/list")
+async def list_strategies_ranked(
+    offset: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=200),
+    sort_by: str = Query("fitness", pattern="^(fitness|return|win_rate|mdd|sharpe|generation)$"),
+    sort_dir: str = Query("desc", pattern="^(asc|desc)$"),
+    status: str = Query("", pattern="^(approved|candidate|disabled|)$"),
+):
+    sort_col = SORTABLE_COLUMNS.get(sort_by, "pf.fitness_score")
+    direction = "DESC" if sort_dir.lower() == "desc" else "ASC"
+    where_extra = ""
+    binds = [status] if status else []
+
+    if status:
+        where_extra = "AND ps.status = :1"
+
+    data_sql = f"""
+        SELECT ps.id, ps.strategy_id, sp.name, sp.generation, pf.total_return, pf.win_rate,
+               pf.max_drawdown, pf.fitness_score, pf.total_trades, pf.profit_factor,
+               sp.last_test_at, ps.status
+        FROM portfolio_strategy ps
+        JOIN strategy_pool sp ON sp.id = ps.strategy_id
+        LEFT JOIN strategy_performance pf ON pf.strategy_id = ps.strategy_id
+          AND pf.generation = (SELECT MAX(pf2.generation) FROM strategy_performance pf2 WHERE pf2.strategy_id = ps.strategy_id)
+        WHERE 1=1 {where_extra}
+        ORDER BY {sort_col} {direction}
+        OFFSET :{(len(binds) + 1) if binds else 1} ROWS FETCH NEXT :{(len(binds) + 2) if binds else 2} ROWS ONLY
+    """
+    data_binds = binds + [offset, limit] if binds else [offset, limit]
+    rows = await execute_query(data_sql, data_binds)
+    items = []
+    for r in rows:
+        items.append({
+            "id": r[0],
+            "strategy_id": r[1],
+            "name": r[2] or "",
+            "generation": r[3] or 0,
+            "return_pct": float(r[4] or 0),
+            "win_rate": float(r[5] or 0),
+            "mdd": float(abs(r[6] or 0)),
+            "fitness": float(r[7] or 0),
+            "total_trades": int(r[8] or 0),
+            "profit_factor": float(r[9] or 0),
+            "last_evaluated": str(r[10]) if len(r) > 10 and r[10] else "",
+            "status": r[11] if len(r) > 11 else "",
+        })
+    return {"items": items, "count": len(items), "offset": offset, "limit": limit}
 
 
 @router.get("/top/{strategy_id}")

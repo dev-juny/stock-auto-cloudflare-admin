@@ -1,15 +1,19 @@
 from __future__ import annotations
 
-import json
 import logging
-import random
-from datetime import date, datetime, timedelta
-from typing import Optional
+from datetime import date
 
 from fastapi import APIRouter, HTTPException, Query
 
 from app.database import execute_query, execute_non_query
-from app.services.broker import MockBroker, OrderRequest
+from app.services.broker import MockBroker
+from app.services.paper_trading_service import (
+    generate_signals_from_portfolio,
+    execute_signals as execute_signals_svc,
+    check_open_positions_for_exits,
+    run_paper_trading_cycle,
+)
+from app.services.operations_service import get_paper_performance as get_performance_svc
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/paper-trading", tags=["paper-trading"])
@@ -21,151 +25,111 @@ _broker = MockBroker()
 async def get_paper_status():
     balance = await _broker.get_balance()
     positions = await _broker.get_positions()
-    # Get trades from DB
     rows = await execute_query(
         "SELECT COUNT(*), COALESCE(SUM(pnl_amt), 0) FROM paper_trades WHERE action = 'sell'",
     )
     total_trades = int(rows[0][0]) if rows else 0
     total_pnl = float(rows[0][1]) if rows else 0
+
+    open_rows = await execute_query(
+        "SELECT COUNT(*), COALESCE(SUM(pnl_amt), 0) FROM paper_positions WHERE status = 'open'",
+    )
+    open_count = int(open_rows[0][0]) if open_rows else 0
+    unrealized_pnl = float(open_rows[0][1]) if open_rows else 0
+
     return {
         "cash": balance.get("cash", 0),
         "total_value": balance.get("total", 0),
         "invested": balance.get("invested", 0),
-        "positions_count": len(positions),
+        "positions_count": open_count,
         "total_trades": total_trades,
         "total_pnl": total_pnl,
+        "unrealized_pnl": unrealized_pnl,
         "broker": "mock",
     }
 
 
 @router.post("/signals")
 async def generate_signals():
-    """Generate buy/sell signals from approved portfolio strategies."""
-    strategies = await execute_query(
-        """SELECT ps.strategy_id, ps.generation
-           FROM portfolio_strategy ps
-           WHERE ps.status IN ('approved', 'candidate')
-           ORDER BY ps.created_at DESC""",
-    )
-    if not strategies:
-        raise HTTPException(400, "No strategies in portfolio")
+    """Generate buy signals from approved portfolio strategies."""
+    signals = await generate_signals_from_portfolio()
+    if not signals:
+        raise HTTPException(400, "No strategies in portfolio or no signals generated")
+    return {"signals": signals, "count": len(signals), "date": date.today().isoformat()}
 
-    signals = []
-    today = date.today()
 
-    for s in strategies[:5]:
-        sid, gen = s[0], s[1]
-        universe = await execute_query(
-            "SELECT ticker, name FROM evolution_evaluation_universe WHERE generation = :1",
-            [gen],
-        )
-        for u in universe[:3]:
-            ticker, name = u[0], u[1] or u[0]
-            # Simple signal: check if price is above 20-day moving average
-            prices = await execute_query(
-                """SELECT close_price FROM stock_daily_prices
-                   WHERE ticker = :1 ORDER BY trade_date DESC FETCH FIRST 20 ROWS ONLY""",
-                [ticker],
-            )
-            if len(prices) < 20:
-                continue
-            closes = [float(p[0]) for p in prices if p[0]]
-            if not closes:
-                continue
-            ma20 = sum(closes) / len(closes)
-            current_price = closes[0]
-            signal = "buy" if current_price < ma20 * 0.98 else ("sell" if current_price > ma20 * 1.02 else "hold")
-
-            if signal != "hold":
-                signals.append({
-                    "ticker": ticker,
-                    "name": name,
-                    "signal": signal,
-                    "price": current_price,
-                    "strategy_id": sid,
-                    "generation": gen,
-                })
-
-    return {"signals": signals, "count": len(signals), "date": today.isoformat()}
+@router.post("/exits")
+async def generate_exit_signals():
+    """Check open positions for exit signals (stop-loss/take-profit/trailing-stop)."""
+    exit_signals = await check_open_positions_for_exits()
+    if not exit_signals:
+        raise HTTPException(400, "No exit signals found")
+    return {"signals": exit_signals, "count": len(exit_signals), "date": date.today().isoformat()}
 
 
 @router.post("/execute")
 async def execute_signals(data: dict):
-    """Execute paper trades based on signals."""
-    signals = data.get("signals", [])
-    if not signals:
+    """Execute paper trades based on signals (buy or sell)."""
+    raw_signals = data.get("signals", [])
+    if not raw_signals:
         raise HTTPException(400, "No signals to execute")
-
-    results = []
-    for sig in signals:
-        ticker = sig["ticker"]
-        action = sig["signal"]
-        price = float(sig.get("price", 0))
-        strategy_id = sig.get("strategy_id", 0)
-
-        if action == "buy":
-            qty = int(1000000 / price) if price > 0 else 1
-            req = OrderRequest(ticker=ticker, action="buy", quantity=qty, price=price)
-            result = await _broker.place_order(req)
-            await execute_non_query(
-                """INSERT INTO paper_positions (strategy_id, ticker, entry_price, current_price, quantity, entry_date, status)
-                   VALUES (:1, :2, :3, :4, :5, CURRENT_TIMESTAMP, 'open')""",
-                [strategy_id, ticker, price, price, qty],
-            )
-            await execute_non_query(
-                """INSERT INTO paper_trades (strategy_id, ticker, action, price, quantity, trade_date, reason)
-                   VALUES (:1, :2, 'buy', :3, :4, CURRENT_TIMESTAMP, :5)""",
-                [strategy_id, ticker, price, qty, sig.get("reason", "signal")],
-            )
-            results.append({"ticker": ticker, "action": "buy", "qty": qty, "filled_price": price, "status": result.status})
-
-        elif action == "sell":
-            pos = await execute_query(
-                "SELECT id, quantity, entry_price FROM paper_positions WHERE ticker = :1 AND status = 'open' FETCH FIRST 1 ROWS ONLY",
-                [ticker],
-            )
-            if pos:
-                pos_id, qty, entry_price = pos[0][0], pos[0][1], float(pos[0][2])
-                req = OrderRequest(ticker=ticker, action="sell", quantity=qty, price=price)
-                result = await _broker.place_order(req)
-                pnl_pct = (price - entry_price) / entry_price * 100
-                pnl_amt = (price - entry_price) * qty
-                await execute_non_query(
-                    "UPDATE paper_positions SET current_price = :1, pnl_pct = :2, pnl_amt = :3, status = 'closed', exit_date = CURRENT_TIMESTAMP WHERE id = :4",
-                    [price, pnl_pct, pnl_amt, pos_id],
-                )
-                await execute_non_query(
-                    "INSERT INTO paper_trades (strategy_id, ticker, action, price, quantity, pnl_pct, trade_date, reason) VALUES (:1, :2, 'sell', :3, :4, :5, CURRENT_TIMESTAMP, :6)",
-                    [strategy_id, ticker, price, qty, pnl_pct, sig.get("reason", "signal")],
-                )
-                results.append({"ticker": ticker, "action": "sell", "qty": qty, "filled_price": price, "pnl_pct": pnl_pct, "status": result.status})
-
+    # Normalise sell signals to use 'sell' action
+    for sig in raw_signals:
+        if "signal" in sig and sig["signal"] == "sell":
+            sig["action"] = "sell"
+    results = await execute_signals_svc(raw_signals)
     return {"results": results, "count": len(results)}
+
+
+@router.post("/run-cycle")
+async def run_cycle():
+    """Run a full paper trading cycle: check exits -> execute, generate entries -> execute."""
+    result = await run_paper_trading_cycle()
+    return result
 
 
 @router.get("/positions")
 async def get_paper_positions():
     rows = await execute_query(
         """SELECT pp.id, pp.strategy_id, pp.ticker, pp.entry_price, pp.current_price,
-                  pp.quantity, pp.entry_date, pp.pnl_pct, pp.pnl_amt, pp.status
+                  pp.quantity, pp.entry_date, pp.pnl_pct, pp.pnl_amt, pp.status,
+                  COALESCE(sp.close_price, pp.current_price)
            FROM paper_positions pp
+           LEFT JOIN (
+               SELECT ticker, close_price, trade_date,
+                      ROW_NUMBER() OVER (PARTITION BY ticker ORDER BY trade_date DESC) AS rn
+               FROM stock_daily_prices
+           ) sp ON sp.ticker = pp.ticker AND sp.rn = 1
            ORDER BY pp.created_at DESC FETCH FIRST 50 ROWS ONLY""",
     )
     items = []
     for r in rows:
+        entry_price = float(r[3] or 0)
+        db_price = float(r[10] or r[4] or 0) if len(r) > 10 else float(r[4] or r[3] or 0)
+        qty = int(r[5] or 0)
+        current_value = qty * db_price
+        cost_basis = qty * entry_price
+        pnl_amt = current_value - cost_basis if entry_price > 0 else 0
+        pnl_pct = ((db_price - entry_price) / entry_price * 100) if entry_price > 0 else 0
         items.append({
             "id": r[0],
             "strategy_id": r[1],
             "ticker": r[2],
-            "entry_price": float(r[3] or 0),
-            "current_price": float(r[4] or r[3] or 0),
-            "quantity": int(r[5] or 0),
+            "entry_price": entry_price,
+            "current_price": db_price,
+            "quantity": qty,
             "entry_date": str(r[6]) if r[6] else "",
-            "pnl_pct": float(r[7] or 0),
-            "pnl_amt": float(r[8] or 0),
+            "pnl_pct": round(pnl_pct, 2),
+            "pnl_amt": round(pnl_amt, 2),
             "status": r[9],
         })
     return {"items": items}
+
+
+@router.get("/performance")
+async def paper_performance(period: str = Query("ALL", pattern="^(ALL|7D|30D|90D)$")):
+    """Paper trading performance metrics with period filter & equity curve."""
+    return await get_performance_svc(period)
 
 
 @router.get("/trades")

@@ -1,5 +1,4 @@
 import uuid
-import random
 from datetime import datetime
 from typing import Optional
 from app.services.broker.base import BrokerBase, OrderRequest, OrderResult
@@ -18,7 +17,7 @@ class MockBroker(BrokerBase):
         return list(self._positions.values())
 
     async def place_order(self, request: OrderRequest) -> OrderResult:
-        filled_price = request.price or random.uniform(50000, 200000)
+        filled_price = request.price or 0
         order_id = str(uuid.uuid4())[:8]
         if request.action == "buy":
             cost = filled_price * request.quantity
@@ -51,4 +50,4 @@ class MockBroker(BrokerBase):
         return True
 
     async def get_market_price(self, ticker: str) -> float:
-        return random.uniform(50000, 200000)
+        return 0.0

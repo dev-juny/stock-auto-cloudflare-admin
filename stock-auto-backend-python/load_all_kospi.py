@@ -7,7 +7,7 @@ Usage:
     export ORACLE_WALLET_PATH=/home/ubuntu/wallet
     export ORACLE_DSN=stockdb_high
     export DB_USER=ADMIN
-    export DB_PASSWORD='!Odhfkzmfelql1379'
+    export DB_PASSWORD='your_db_password_here'
     python3 load_all_kospi.py
 """
 
@@ -24,7 +24,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "stock-auto-back
 os.environ.setdefault("ORACLE_WALLET_PATH", os.environ.get("TNS_ADMIN", ""))
 os.environ.setdefault("ORACLE_DSN", "stockdb_high")
 os.environ.setdefault("DB_USER", "ADMIN")
-os.environ.setdefault("DB_PASSWORD", "!Odhfkzmfelql1379")
+os.environ.setdefault("DB_PASSWORD", "")
 
 from app.database import close_oracle, execute_non_query, get_pool
 from app.services.kospi_data import load_all_historical, sync_kospi_tickers

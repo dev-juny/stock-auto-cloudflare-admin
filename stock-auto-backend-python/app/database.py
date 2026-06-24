@@ -8,7 +8,7 @@ import oracledb
 from app.config import settings
 
 _pool: oracledb.Pool | None = None
-_db_executor = concurrent.futures.ThreadPoolExecutor(max_workers=16, thread_name_prefix="db")
+_db_executor = concurrent.futures.ThreadPoolExecutor(max_workers=4, thread_name_prefix="db")
 
 
 def _shutdown_executor():
