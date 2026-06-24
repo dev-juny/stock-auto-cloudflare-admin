@@ -263,21 +263,13 @@ async def get_paper_performance(period: str = "ALL") -> dict:
     rows = await execute_query("SELECT COALESCE(SUM(pnl_amt), 0) FROM paper_trades WHERE action = 'sell'")
     total_pnl = float(rows[0][0]) if rows else 0
 
-    rows = await execute_query("SELECT COALESCE(SUM(pnl_amt), 0) FROM paper_trades WHERE action = 'sell' AND pnl_amt > 0")
-    gross_profit = float(rows[0][0]) if rows else 0
-
-    rows = await execute_query("SELECT COALESCE(SUM(pnl_amt), 0) FROM paper_trades WHERE action = 'sell' AND pnl_amt <= 0")
-    gross_loss = abs(float(rows[0][0]) if rows else 0)
-
-    profit_factor = (gross_profit / max(gross_loss, 0.01)) if gross_loss > 0 else (gross_profit or 0)
-
     initial_capital = 10000000.0
     total_return = (total_pnl / initial_capital) * 100
 
     rows = await execute_query("SELECT COALESCE(AVG(EXTRACT(DAY FROM (exit_date - entry_date))), 0) FROM paper_positions WHERE status = 'closed'")
     avg_holding_days = float(rows[0][0]) if rows else 0
 
-    # Period filter for daily returns
+    # Period filter for daily returns and performance metrics
     date_filter = ""
     if period == "7D":
         date_filter = "AND trade_date >= CURRENT_TIMESTAMP - INTERVAL '7' DAY"
@@ -285,6 +277,18 @@ async def get_paper_performance(period: str = "ALL") -> dict:
         date_filter = "AND trade_date >= CURRENT_TIMESTAMP - INTERVAL '30' DAY"
     elif period == "90D":
         date_filter = "AND trade_date >= CURRENT_TIMESTAMP - INTERVAL '90' DAY"
+
+    rows = await execute_query(
+        f"SELECT COALESCE(SUM(pnl_amt), 0) FROM paper_trades WHERE action = 'sell' AND pnl_amt > 0 {date_filter}",
+    )
+    gross_profit = float(rows[0][0]) if rows else 0
+
+    rows = await execute_query(
+        f"SELECT COALESCE(SUM(pnl_amt), 0) FROM paper_trades WHERE action = 'sell' AND pnl_amt < 0 {date_filter}",
+    )
+    gross_loss = abs(float(rows[0][0]) if rows else 0)
+
+    profit_factor = (gross_profit / max(gross_loss, 0.01)) if gross_loss > 0 else (gross_profit or 0)
 
     rows = await execute_query(
         f"""SELECT TRUNC(trade_date), COALESCE(SUM(pnl_amt), 0)
