@@ -19,6 +19,9 @@ from app.services.operations_service import (
     get_scheduler_status, get_system_health,
     start_validation, stop_validation, get_validation_status,
     check_live_trading_readiness,
+    get_validation_dashboard,
+    simulate_cash_ratio, set_capital_deployment,
+    get_integration_dashboard,
 )
 
 router = APIRouter(prefix="/api", tags=["service"])
@@ -235,6 +238,13 @@ async def portfolio_rebalance(data: dict):
     return await rebalance_portfolio(method)
 
 
+@router.post("/portfolio/rebalance/run")
+async def portfolio_rebalance_run(data: dict):
+    """Run rebalance immediately regardless of schedule."""
+    method = data.get("method", "TOP3")
+    return await rebalance_portfolio(method)
+
+
 @router.get("/portfolio/rebalance-history")
 async def rebalance_history(limit: int = Query(20)):
     """Get rebalance history."""
@@ -281,3 +291,37 @@ async def validation_status():
 async def live_trading_readiness():
     """Check if all conditions met for live trading."""
     return await check_live_trading_readiness()
+
+
+# ── P3: Cash Management ─────────────────────────────────────────
+
+
+@router.get("/risk/cash-simulation")
+async def risk_cash_simulation(min_cash_ratio: float = Query(10, ge=5, le=50)):
+    """Simulate how different cash reserve levels affect the portfolio."""
+    return await simulate_cash_ratio(min_cash_ratio)
+
+
+@router.post("/risk/set-deployment")
+async def risk_set_deployment(data: dict):
+    """Set max capital deployment % (e.g. 80 = max 80% invested)."""
+    pct = data.get("deployment_pct", 100)
+    return await set_capital_deployment(pct)
+
+
+# ── P4: Validation Dashboard ────────────────────────────────────
+
+
+@router.get("/validation/dashboard")
+async def validation_dashboard():
+    """Validation dashboard with progress, daily logs, and metrics."""
+    return await get_validation_dashboard()
+
+
+# ── P6: Integration Dashboard ────────────────────────────────────
+
+
+@router.get("/dashboard")
+async def integration_dashboard():
+    """Unified dashboard aggregating evolution, portfolio, risk, validation, paper trading."""
+    return await get_integration_dashboard()

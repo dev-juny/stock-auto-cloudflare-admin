@@ -16,7 +16,7 @@ SORTABLE_COLUMNS = {
     "return": "pf.total_return",
     "win_rate": "pf.win_rate",
     "mdd": "pf.max_drawdown",
-    "sharpe": "pf.profit_factor",
+    "profit_factor": "pf.profit_factor",
     "generation": "sp.generation",
 }
 
@@ -31,7 +31,7 @@ FILTER_COLUMNS = {
 async def get_top_strategies(
     offset: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=200),
-    sort_by: str = Query("fitness", pattern="^(fitness|return|win_rate|mdd|generation)$"),
+    sort_by: str = Query("fitness", pattern="^(fitness|return|win_rate|mdd|profit_factor|generation)$"),
     sort_dir: str = Query("desc", pattern="^(asc|desc)$"),
     min_fitness: float = Query(50.0),
     min_win_rate: float = Query(45.0),

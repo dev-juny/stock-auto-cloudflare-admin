@@ -4,7 +4,7 @@ import numpy as np
 from datetime import date, timedelta
 from typing import Any
 
-from .models import EvolutionConfig, EvolutionStrategy
+from .models import EvolutionConfig, EvolutionStrategy, StrategyParams
 from .database import (
     get_or_create_generation_universe,
     save_performance,
@@ -57,30 +57,35 @@ class StrategyEvaluator:
         total_pnl = 0.0
         wins = 0
         trades = 0
-        peak = 0.0
+        peak_equity = 0.0
         max_dd = 0.0
         gross_profit = 0.0
         gross_loss = 0.0
+        initial_notional = 1000000.0  # 1M won notional per trade
 
         for trade in result:
             if 'pnl' in trade:
                 pnl = trade['pnl']
-                total_pnl += pnl
+                pnl_amt = pnl * initial_notional
+                total_pnl += pnl_amt
                 trades += 1
                 if pnl > 0:
                     wins += 1
-                    gross_profit += pnl
+                    gross_profit += pnl_amt
                 else:
-                    gross_loss += abs(pnl)
-            peak = max(peak, total_pnl)
-            dd = peak - total_pnl
-            max_dd = max(max_dd, dd)
+                    gross_loss += abs(pnl_amt)
+            # MDD based on equity curve (percentage from peak)
+            current_equity = initial_notional + total_pnl
+            if current_equity > peak_equity:
+                peak_equity = current_equity
+            dd_pct = (peak_equity - current_equity) / peak_equity * 100 if peak_equity > 0 else 0
+            max_dd = max(max_dd, dd_pct)
 
         if trades == 0:
             return {}
 
         win_rate = wins / trades * 100
-        profit_factor = gross_profit / gross_loss if gross_loss > 0 else (gross_profit / 0.0001)
+        profit_factor = gross_profit / gross_loss if gross_loss > 0.001 else (999.0 if gross_profit > 0 else 0.0)
 
         return {
             'total_return': round(total_pnl * 100, 4),
@@ -135,6 +140,26 @@ class StrategyEvaluator:
             'profit_factor': round(avg_pf, 4),
             'total_trades': total_trades,
         }
+
+    async def evaluate_strategy_for_recalc(self, strategy_id: int, generation: int, universe: list[dict]) -> dict:
+        """Re-evaluate a single strategy by ID (used for batch recalc)."""
+        from app.database import execute_query
+        import json as _json
+        rows = await execute_query("SELECT params_json FROM strategy_pool WHERE id = :1", [strategy_id])
+        if not rows or not rows[0][0]:
+            return {}
+        raw = rows[0][0]
+        try:
+            p_dict = _json.loads(raw) if isinstance(raw, str) else _json.loads(raw.read())
+        except Exception:
+            return {}
+        params = StrategyParams(**{k: v for k, v in p_dict.items() if k in StrategyParams.model_fields})
+        strat = EvolutionStrategy(
+            id=strategy_id,
+            generation=generation,
+            params=params,
+        )
+        return await self.evaluate_strategy(strat, universe)
 
     async def evaluate_batch(self, strategies: list[EvolutionStrategy]):
         if not strategies:

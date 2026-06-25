@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import date
+from datetime import date, datetime
 
 from app.database import execute_query, execute_non_query
 from app.services.broker import MockBroker, OrderRequest
@@ -11,6 +11,7 @@ from app.services.operations_service import check_risk_limits, log_daily_validat
 logger = logging.getLogger(__name__)
 
 _broker = MockBroker()
+_INITIAL_CAPITAL = 10000000.0
 
 
 async def _get_current_price(ticker: str) -> float | None:
@@ -131,6 +132,7 @@ async def check_exit_signal(
     entry_price: float,
     highest_price: float,
     params: dict,
+    entry_date=None,
 ) -> tuple[str, str]:
     current_price = await _get_current_price(ticker)
     if current_price is None:
@@ -140,6 +142,7 @@ async def check_exit_signal(
     take_profit_pct = float(params.get("fixed_take_profit_pct", 0.07))
     trailing_activation_pct = float(params.get("trailing_activation_pct", 0.07))
     trailing_stop_pct = float(params.get("trailing_stop_pct", 0.03))
+    stall_exit_days = int(params.get("stall_exit_days", 0))
 
     new_highest = max(highest_price, current_price)
     pnl_pct = (current_price - entry_price) / entry_price * 100
@@ -160,7 +163,16 @@ async def check_exit_signal(
         else:
             logger.debug("[PAPER] %s TRAILING_ACTIVE: high=%.0f trail_stop=%.0f price=%.0f distance=%.1f%%", ticker, new_highest, trailing_stop_price, current_price, (current_price - trailing_stop_price) / new_highest * 100)
 
-    logger.debug("[PAPER] %s HOLD: entry=%.0f price=%.0f high=%.0f pnl=%.1f%% sl=%.1f%% tp=%.1f%%", ticker, entry_price, current_price, new_highest, pnl_pct, stop_loss_pct * 100, take_profit_pct * 100)
+    # Stall exit: close position if held too long without hitting targets
+    if stall_exit_days > 0 and entry_date is not None:
+        from datetime import timezone
+        now = datetime.now(timezone.utc)
+        held_days = (now - entry_date).days if hasattr(entry_date, 'date') else 0
+        if held_days >= stall_exit_days:
+            logger.info("[PAPER] %s STALL_EXIT: entry=%.0f price=%.0f held=%dd limit=%dd pnl=%.1f%%", ticker, entry_price, current_price, held_days, stall_exit_days, pnl_pct)
+            return ("sell", "stall_exit")
+
+    logger.debug("[PAPER] %s HOLD: entry=%.0f price=%.0f high=%.0f pnl=%.1f%% sl=%.1f%% tp=%.1f%% stall=%dd", ticker, entry_price, current_price, new_highest, pnl_pct, stop_loss_pct * 100, take_profit_pct * 100, stall_exit_days)
     return ("hold", "")
 
 
@@ -224,13 +236,18 @@ async def generate_signals_from_portfolio(max_strategies: int = 5, max_tickers_p
 
 async def check_open_positions_for_exits() -> list[dict]:
     rows = await execute_query(
-        """SELECT pp.id, pp.strategy_id, pp.ticker, pp.entry_price, pp.quantity, pp.highest_price
+        """SELECT pp.id, pp.strategy_id, pp.ticker, pp.entry_price, pp.quantity, pp.highest_price, pp.entry_date
            FROM paper_positions pp
            WHERE pp.status = 'open'""",
     )
     exit_signals = []
+    from datetime import timezone
+    now_utc = datetime.now(timezone.utc)
     for r in rows:
-        pos_id, strategy_id, ticker, entry_price, qty = r[0], r[1], r[2], float(r[3] or 0), int(r[4] or 0)
+        pos_id, strategy_id, ticker = r[0], r[1], r[2]
+        entry_price = float(r[3] or 0)
+        qty = int(r[4] or 0)
+        entry_date = r[6]
         if entry_price <= 0:
             continue
         params = await load_strategy_params(strategy_id)
@@ -246,7 +263,41 @@ async def check_open_positions_for_exits() -> list[dict]:
                 "UPDATE paper_positions SET highest_price = :1 WHERE id = :2",
                 [new_highest, pos_id],
             )
-        signal, reason = await check_exit_signal(ticker, entry_price, new_highest, params)
+        pnl_pct = ((current_price - entry_price) / entry_price * 100) if entry_price > 0 else 0
+        await execute_non_query(
+            "UPDATE paper_positions SET current_price = :1, pnl_pct = :2 WHERE id = :3",
+            [current_price, pnl_pct, pos_id],
+        )
+
+        held_days = 0
+        if entry_date and hasattr(entry_date, 'date'):
+            if hasattr(entry_date, 'tzinfo') and entry_date.tzinfo is None:
+                ed = entry_date.replace(tzinfo=timezone.utc)
+            elif hasattr(entry_date, 'tzinfo'):
+                ed = entry_date
+            else:
+                ed = entry_date
+            held_days = max(0, (now_utc - ed).total_seconds() / 86400)
+
+        sl_pct = float(params.get("stop_loss_pct", 0))
+        tp_pct = float(params.get("fixed_take_profit_pct", 0.07))
+        trail_act = float(params.get("trailing_activation_pct", 0.07))
+        trail_stop = float(params.get("trailing_stop_pct", 0.03))
+        stall_days = int(params.get("stall_exit_days", 0))
+
+        signal, reason = await check_exit_signal(ticker, entry_price, new_highest, params, entry_date)
+
+        # Detailed exit log
+        log_msg = (
+            f"[EXIT CHECK] ticker={ticker} pos_id={pos_id} strategy={strategy_id} "
+            f"entry={entry_price:.0f} current={current_price:.0f} pnl={pnl_pct:.2f}% "
+            f"sl={sl_pct*100:.0f}% tp={tp_pct*100:.0f}% "
+            f"trail_act={trail_act*100:.0f}%/stop={trail_stop*100:.0f}% "
+            f"stall={stall_days}d held={held_days:.1f}d "
+            f"result={signal} reason={reason}"
+        )
+        logger.info(log_msg)
+
         if signal == "sell":
             exit_signals.append({
                 "pos_id": pos_id,
@@ -259,6 +310,48 @@ async def check_open_positions_for_exits() -> list[dict]:
                 "reason": reason,
             })
     return exit_signals
+
+
+async def _get_available_cash() -> float:
+    bal = await _broker.get_balance()
+    cash = float(bal.get("cash", 0))
+    return max(0, cash)
+
+
+async def _get_enforced_max_exposure() -> float:
+    from app.services.service_db import get_settings
+    settings = await get_settings()
+    max_deploy = float(settings.get("max_capital_deployment", 100))
+    return _INITIAL_CAPITAL * max_deploy / 100
+
+
+async def _is_ticker_held(ticker: str) -> bool:
+    rows = await execute_query(
+        "SELECT COUNT(*) FROM paper_positions WHERE ticker = :1 AND status = 'open'",
+        [ticker],
+    )
+    return int(rows[0][0]) > 0 if rows else False
+
+
+async def _compute_position_size(price: float, strategy_id: int) -> int:
+    if price <= 0:
+        return 1
+    available = await _get_available_cash()
+    max_exposure = await _get_enforced_max_exposure()
+    current_exposure = 0
+    rows = await execute_query("SELECT COALESCE(SUM(quantity * current_price), 0) FROM paper_positions WHERE status = 'open'")
+    if rows and rows[0][0]:
+        current_exposure = float(rows[0][0])
+    remaining_capacity = max(0, max_exposure - current_exposure)
+    max_buy = min(available, remaining_capacity)
+    strategy_count = 0
+    rows2 = await execute_query("SELECT COUNT(*) FROM portfolio_strategy WHERE status = 'approved'")
+    if rows2 and rows2[0][0]:
+        strategy_count = int(rows2[0][0])
+    per_strategy_budget = max_buy / max(strategy_count, 1)
+    position_budget = min(per_strategy_budget, 500000)
+    qty = int(position_budget / price)
+    return max(qty, 1)
 
 
 async def execute_signals(signals: list[dict]) -> list[dict]:
@@ -278,9 +371,23 @@ async def execute_signals(signals: list[dict]) -> list[dict]:
             price = db_price
 
         if action == "buy":
-            qty = int(500000 / price) if price > 0 else 1
+            # Dedup: skip if this ticker is already held
+            if await _is_ticker_held(ticker):
+                logger.info("[PAPER] %s SKIP buy: already held (strategy=%d)", ticker, strategy_id)
+                continue
+            available = await _get_available_cash()
+            if available <= 0:
+                logger.info("[PAPER] %s SKIP buy: no available cash (%.0f)", ticker, available)
+                continue
+            qty = await _compute_position_size(price, strategy_id)
             if qty <= 0:
                 qty = 1
+            cost = qty * price
+            if cost > available:
+                qty = int(available / price)
+                if qty <= 0:
+                    logger.info("[PAPER] %s SKIP buy: insufficient cash need=%.0f have=%.0f", ticker, cost, available)
+                    continue
             req = OrderRequest(ticker=ticker, action="buy", quantity=qty, price=price)
             result = await _broker.place_order(req)
             await execute_non_query(
@@ -293,7 +400,7 @@ async def execute_signals(signals: list[dict]) -> list[dict]:
                    VALUES (:1, :2, 'buy', :3, :4, CURRENT_TIMESTAMP, :5)""",
                 [strategy_id, ticker, price, qty, sig.get("reason", "signal")],
             )
-            results.append({"ticker": ticker, "action": "buy", "qty": qty, "filled_price": price, "status": result.status})
+            results.append({"ticker": ticker, "action": "buy", "qty": qty, "filled_price": price, "cost": cost, "status": result.status})
 
         elif action == "sell":
             pos_id = sig.get("pos_id", 0)

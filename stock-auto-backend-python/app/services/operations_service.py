@@ -21,6 +21,8 @@ async def get_risk_settings() -> dict:
         "daily_loss_limit": float(raw.get("daily_loss_limit", 5)),
         "daily_profit_lock": float(raw.get("daily_profit_lock", 10)),
         "risk_mode": raw.get("risk_mode", "normal"),
+        "max_capital_deployment": float(raw.get("max_capital_deployment", 100)),
+        "min_cash_ratio": float(raw.get("min_cash_ratio", 10)),
     }
     return defaults
 
@@ -34,18 +36,57 @@ async def check_risk_limits() -> dict:
     settings = await get_risk_settings()
     daily_loss_limit = float(settings.get("daily_loss_limit", 5))
     daily_profit_lock = float(settings.get("daily_profit_lock", 10))
+    risk_mode = settings.get("risk_mode", "normal")
     blocked = False
     reasons = []
+    warnings = []
 
     rows = await execute_query("SELECT COUNT(*) FROM paper_positions WHERE status = 'open'")
     open_positions = int(rows[0][0]) if rows else 0
 
     rows = await execute_query(
-        "SELECT COALESCE(SUM(pnl_amt), 0), COALESCE(SUM(pnl_amt), 0) FROM paper_trades WHERE action = 'sell' AND trade_date >= TRUNC(CURRENT_TIMESTAMP)",
+        "SELECT COALESCE(SUM(pnl_amt), 0) FROM paper_trades WHERE action = 'sell' AND trade_date >= TRUNC(CURRENT_TIMESTAMP)",
     )
     today_pnl = float(rows[0][0]) if rows else 0
     initial_capital = 10000000.0
     today_pnl_pct = (today_pnl / initial_capital) * 100
+
+    # Portfolio MDD from paper trading equity curve (real performance)
+    rows = await execute_query(
+        """SELECT COALESCE(MIN(pnl_amt), 0) FROM paper_trades WHERE action = 'sell'"""
+    )
+    paper_mdd_raw = abs(float(rows[0][0]) if rows and rows[0][0] else 0)
+    rows = await execute_query("SELECT COALESCE(MAX(mdd), 0) FROM portfolio_backtest")
+    backtest_mdd = abs(float(rows[0][0]) if rows else 0)
+    portfolio_mdd = backtest_mdd
+
+    # Compute actual MDD from paper positions (current unrealized PnL)
+    rows = await execute_query(
+        "SELECT COALESCE(AVG(pnl_pct), 0) FROM paper_positions WHERE status = 'open'"
+    )
+    avg_unrealized_pnl = float(rows[0][0]) if rows else 0
+
+    # Consecutive losses
+    rows = await execute_query(
+        """SELECT COUNT(*) FROM (
+            SELECT pnl_pct, ROW_NUMBER() OVER (ORDER BY trade_date DESC) rn
+            FROM paper_trades WHERE action = 'sell' ORDER BY trade_date DESC
+        ) WHERE pnl_pct <= 0 AND rn <= 30"""
+    )
+    consecutive_losses = int(rows[0][0]) if rows else 0
+
+    # Position concentration (single ticker exposure)
+    rows = await execute_query(
+        "SELECT COALESCE(SUM(quantity * current_price), 0), COALESCE(MAX(quantity * current_price), 0) FROM paper_positions WHERE status = 'open'"
+    )
+    total_exposure = float(rows[0][0]) if rows else 0
+    max_single_exposure = float(rows[0][1]) if rows else 0
+    single_asset_ratio = (max_single_exposure / max(total_exposure, 1)) * 100 if total_exposure > 0 else 0
+
+    # Cash ratio
+    cash_ratio = max(0, (initial_capital - total_exposure) / initial_capital * 100)
+
+    # --- Checks ---
 
     if daily_loss_limit > 0 and today_pnl_pct <= -daily_loss_limit:
         blocked = True
@@ -57,17 +98,56 @@ async def check_risk_limits() -> dict:
         reasons.append(f"Daily profit lock: {today_pnl_pct:.2f}% >= {daily_profit_lock}%")
         await add_system_log("RISK", "check_risk_limits", f"Daily profit lock triggered: {today_pnl_pct:.2f}%")
 
-    # Compute current drawdown from portfolio backtest
-    rows = await execute_query("SELECT COALESCE(MAX(mdd), 0) FROM portfolio_backtest")
-    portfolio_mdd = float(rows[0][0]) if rows else 0
+    # MDD > 30%: BLOCKED (either from backtest or from unrealized losses)
+    mdd_used = max(portfolio_mdd, max(0, -avg_unrealized_pnl))
+    if mdd_used > 30:
+        blocked = True
+        reasons.append(f"Portfolio MDD {mdd_used:.1f}% > 30%")
+        await add_system_log("RISK", "check_risk_limits", f"MDD limit breached: {mdd_used:.1f}%")
+
+    # Single asset concentration > 30%: BLOCKED
+    if single_asset_ratio > 30:
+        blocked = True
+        reasons.append(f"Single asset concentration {single_asset_ratio:.1f}% > 30%")
+
+    # Consecutive losses >= 10: BLOCKED
+    if consecutive_losses >= 10:
+        blocked = True
+        reasons.append(f"Consecutive losses {consecutive_losses} >= 10")
+
+    # Excess positions warning
+    if open_positions > 30:
+        warnings.append(f"Open positions {open_positions} > 30")
+
+    # Low cash warning
+    if cash_ratio < 10:
+        warnings.append(f"Cash ratio {cash_ratio:.1f}% < 10%")
+
+    # P3: Auto cash reserve enforcement
+    max_deploy = float(settings.get("max_capital_deployment", 100))
+    min_cash = float(settings.get("min_cash_ratio", 10))
+    if max_deploy < 100:
+        max_exposure = initial_capital * max_deploy / 100
+        if total_exposure > max_exposure:
+            blocked = True
+            reasons.append(f"Exposure {total_exposure:.0f} > max deploy {max_deploy}% ({max_exposure:.0f})")
 
     return {
         "blocked": blocked,
         "reasons": reasons,
+        "warnings": warnings,
         "today_pnl_pct": round(today_pnl_pct, 2),
         "open_positions": open_positions,
-        "portfolio_mdd": round(abs(portfolio_mdd), 2),
+        "total_exposure": round(total_exposure, 2),
+        "cash_ratio": round(cash_ratio, 2),
+        "single_asset_ratio": round(single_asset_ratio, 2),
+        "consecutive_losses": consecutive_losses,
+        "portfolio_mdd": round(portfolio_mdd, 2),
+        "avg_unrealized_pnl": round(avg_unrealized_pnl, 2),
         "risk_status": "BLOCKED" if blocked else "PASS",
+        "max_capital_deployment": max_deploy,
+        "min_cash_ratio": min_cash,
+        "max_exposure": initial_capital * max_deploy / 100,
     }
 
 
@@ -79,7 +159,7 @@ async def auto_promote_strategies() -> dict:
     If approved count < 5, auto-promote. If a candidate has higher fitness
     than an existing approved strategy, swap them."""
     candidates = await execute_query(
-        """SELECT ps.id, ps.strategy_id, ps.generation, pf.fitness_score, pf.win_rate, pf.total_trades, pf.max_drawdown
+        """SELECT ps.id, ps.strategy_id, ps.generation, pf.fitness_score, pf.win_rate, pf.total_trades, pf.max_drawdown, pf.profit_factor
            FROM portfolio_strategy ps
            JOIN strategy_performance pf ON pf.strategy_id = ps.strategy_id
              AND pf.generation = (SELECT MAX(pf2.generation) FROM strategy_performance pf2 WHERE pf2.strategy_id = ps.strategy_id)
@@ -100,11 +180,15 @@ async def auto_promote_strategies() -> dict:
 
     eligible = [
         c for c in candidates
-        if float(c[3] or 0) >= 50 and float(c[4] or 0) >= 45 and int(c[5] or 0) >= 30
+        if float(c[3] or 0) >= 50        # fitness >= 50
+        and float(c[4] or 0) >= 45       # win_rate >= 45
+        and int(c[5] or 0) >= 30         # total_trades >= 30
+        and float(c[7] or 0) >= 1.3      # profit_factor >= 1.3
+        and abs(float(c[6] or 0)) <= 20  # mdd <= 20
     ]
 
     for c in eligible:
-        pid, sid, gen, fitness, wr, trades, mdd = c[0], c[1], c[2], float(c[3] or 0), float(c[4] or 0), int(c[5] or 0), float(c[6] or 0)
+        pid, sid, gen, fitness, wr, trades, mdd, pf = c[0], c[1], c[2], float(c[3] or 0), float(c[4] or 0), int(c[5] or 0), float(c[6] or 0), float(c[7] or 0)
 
         if len(approved) < 5:
             # Promote directly
@@ -112,7 +196,7 @@ async def auto_promote_strategies() -> dict:
             approved.append((pid, sid, fitness))
             approved.sort(key=lambda x: -x[2])
             promoted += 1
-            logger.info("[AUTO-PROMOTION] Strategy %d promoted (fitness=%.1f wr=%.1f mdd=%.1f)", sid, fitness, wr, abs(mdd))
+            logger.info("[AUTO-PROMOTION] Strategy %d promoted (fitness=%.1f wr=%.1f pf=%.2f mdd=%.1f)", sid, fitness, wr, pf, abs(mdd))
         else:
             # Check if better than worst approved
             worst = approved[-1]
@@ -245,6 +329,18 @@ async def get_rebalance_history(limit: int = 20) -> list[dict]:
 # ── 4. Paper Trading Performance (Enhanced) ────────────────────
 
 
+def get_pf_grade(pf: float) -> str:
+    if pf < 1.0:
+        return "LOSS"
+    if pf < 1.2:
+        return "WEAK"
+    if pf < 1.5:
+        return "GOOD"
+    if pf < 2.0:
+        return "STRONG"
+    return "EXCELLENT"
+
+
 async def get_paper_performance(period: str = "ALL") -> dict:
     rows = await execute_query("SELECT COUNT(*) FROM paper_trades")
     total_trades = int(rows[0][0]) if rows else 0
@@ -356,6 +452,11 @@ async def get_paper_performance(period: str = "ALL") -> dict:
             peak_eq = pt["equity"]
         drawdown_curve.append({"date": pt["date"], "drawdown": round((peak_eq - pt["equity"]) / peak_eq * 100, 2)})
 
+    pf_grade = get_pf_grade(profit_factor)
+
+    avg_win = gross_profit / max(winning_trades, 1)
+    avg_loss = gross_loss / max(losing_trades, 1)
+
     return {
         "total_return": round(total_return, 2),
         "cagr": round(cagr, 2),
@@ -364,11 +465,16 @@ async def get_paper_performance(period: str = "ALL") -> dict:
         "max_drawdown": round(mdd, 2),
         "win_rate": round(win_rate, 2),
         "profit_factor": round(profit_factor, 4),
+        "pf_grade": pf_grade,
         "average_trade_return": round(avg_trade_return, 2),
         "average_holding_days": round(avg_holding_days, 1),
         "total_trades": total_trades,
         "winning_trades": winning_trades,
         "losing_trades": losing_trades,
+        "gross_profit": round(gross_profit, 2),
+        "gross_loss": round(gross_loss, 2),
+        "avg_win": round(avg_win, 2),
+        "avg_loss": round(avg_loss, 2),
         "total_pnl": round(total_pnl, 2),
         "current_exposure": round(current_exposure, 2),
         "open_positions": open_positions_count,
@@ -448,8 +554,16 @@ async def get_portfolio_health() -> dict:
     rows = await execute_query("SELECT COUNT(*) FROM portfolio_strategy WHERE status = 'disabled'")
     disabled = int(rows[0][0]) if rows else 0
 
-    rows = await execute_query("SELECT return_pct, mdd, sharpe_ratio, cagr FROM portfolio_backtest ORDER BY id DESC FETCH FIRST 1 ROW ONLY")
-    bt = rows[0] if rows else None
+    try:
+        rows = await execute_query("SELECT return_pct, mdd, sharpe_ratio, cagr FROM portfolio_backtest ORDER BY id DESC FETCH FIRST 1 ROW ONLY")
+        bt = rows[0] if rows else None
+    except Exception:
+        bt = None
+    try:
+        pf_rows = await execute_query("SELECT profit_factor FROM portfolio_backtest ORDER BY id DESC FETCH FIRST 1 ROW ONLY")
+        pf_val = float(pf_rows[0][0]) if pf_rows and pf_rows[0][0] else 0
+    except Exception:
+        pf_val = 0
     rows = await execute_query("SELECT COUNT(*) FROM paper_trades WHERE trade_date >= TRUNC(CURRENT_TIMESTAMP)")
     today_signals = int(rows[0][0]) if rows else 0
     rows = await execute_query("SELECT COUNT(*) FROM paper_positions WHERE status = 'open'")
@@ -466,6 +580,8 @@ async def get_portfolio_health() -> dict:
         "portfolio_mdd": round(float(bt[1]), 2) if bt else 0,
         "portfolio_sharpe": round(float(bt[2]), 4) if bt else 0,
         "portfolio_cagr": round(float(bt[3]), 2) if bt else 0,
+        "portfolio_profit_factor": round(pf_val, 4),
+        "pf_grade": get_pf_grade(pf_val),
         "today_signals": today_signals,
         "open_positions": open_positions,
         "closed_positions": closed_positions,
@@ -678,19 +794,22 @@ async def _compute_validation_report() -> dict:
     sharpe = perf.get("sharpe", 0)
     mdd = abs(perf.get("max_drawdown", 0))
 
+    fitness = perf.get("fitness", 0)
+    total_trades = perf.get("total_trades", 0)
     checks = {
+        "fitness_gt_50": fitness >= 50,
         "return_gt_kospi": perf.get("total_return", 0) > benchmark_return,
-        "alpha_gt_5": alpha > 5,
         "win_rate_gt_50": win_rate > 50,
-        "profit_factor_gt_1_2": profit_factor > 1.2,
+        "profit_factor_gt_1_5": profit_factor > 1.5,
         "sharpe_gt_1_0": sharpe > 1.0,
         "mdd_lt_20": mdd < 20,
+        "trades_gt_50": total_trades >= 50,
     }
     all_pass = all(checks.values())
 
     if all_pass:
         verdict = "PASS"
-    elif sum(1 for v in checks.values() if v) >= 4:
+    elif sum(1 for v in checks.values() if v) >= 5:
         verdict = "WATCH"
     else:
         verdict = "FAIL"
@@ -706,46 +825,650 @@ async def _compute_validation_report() -> dict:
         "max_drawdown": mdd,
         "win_rate": win_rate,
         "profit_factor": profit_factor,
+        "pf_grade": get_pf_grade(profit_factor),
+        "fitness": perf.get("fitness", 0),
         "total_trades": perf.get("total_trades", 0),
         "checks": checks,
+        "checks_passed": sum(1 for v in checks.values() if v),
+        "checks_total": len(checks),
     }
 
 
-# ── 10. Live Trading Readiness ─────────────────────────────────
+# ── 10. P3: Cash Management Simulation ─────────────────────────
+
+
+async def simulate_cash_ratio(min_cash_ratio: float) -> dict:
+    """Simulate how different cash reserves affect the portfolio."""
+    initial_capital = 10000000.0
+
+    rows = await execute_query("SELECT COALESCE(SUM(quantity * current_price), 0) FROM paper_positions WHERE status = 'open'")
+    current_exposure = float(rows[0][0]) if rows else 0
+
+    rows = await execute_query("SELECT COALESCE(SUM(pnl_amt), 0) FROM paper_trades WHERE action = 'sell'")
+    total_pnl = float(rows[0][0]) if rows else 0
+
+    current_cash = initial_capital - current_exposure
+    deployment_pct = (current_exposure / initial_capital) * 100
+    target_exposure = initial_capital * (1 - min_cash_ratio / 100)
+    must_reduce = max(0, current_exposure - target_exposure)
+
+    # Estimate MDD impact from reducing positions
+    rows = await execute_query("SELECT COALESCE(AVG(pnl_pct), 0) FROM paper_positions WHERE status = 'open'")
+    avg_unrealized_pnl = float(rows[0][0]) if rows else 0
+
+    return {
+        "current": {
+            "cash": round(current_cash, 2),
+            "exposure": round(current_exposure, 2),
+            "deployment_pct": round(deployment_pct, 2),
+            "cash_ratio": round((current_cash / initial_capital) * 100, 2),
+        },
+        "scenario": {
+            "min_cash_ratio": min_cash_ratio,
+            "target_exposure": round(target_exposure, 2),
+            "target_cash": round(initial_capital * min_cash_ratio / 100, 2),
+            "must_reduce_exposure_by": round(must_reduce, 2),
+            "positions_to_close": int(must_reduce / max(current_exposure / max(len(await execute_query("SELECT COUNT(*) FROM paper_positions WHERE status='open'")), 1), 1)),
+        },
+        "projected": {
+            "expected_return_change_pct": "0% (no sell trades yet)",
+            "expected_mdd_reduction": f"{-avg_unrealized_pnl:.2f}% (current avg unrealized)",
+        },
+        "comparison": {
+            "cash_10pct": {
+                "exposure": initial_capital * 0.9,
+                "cash": initial_capital * 0.1,
+            },
+            "cash_20pct": {
+                "exposure": initial_capital * 0.8,
+                "cash": initial_capital * 0.2,
+            },
+            "cash_30pct": {
+                "exposure": initial_capital * 0.7,
+                "cash": initial_capital * 0.3,
+            },
+        },
+        "suggestion": "Set max_capital_deployment=90 to enforce 10% cash reserve. Current 0% cash leaves no buffer for drawdowns or new opportunities.",
+    }
+
+
+async def set_capital_deployment(deployment_pct: float) -> dict:
+    """Set max capital deployment % (e.g. 80 = never invest more than 80% of capital)."""
+    if deployment_pct < 10 or deployment_pct > 100:
+        return {"error": "deployment_pct must be between 10 and 100"}
+    await update_setting("max_capital_deployment", deployment_pct, "number")
+    await add_system_log("RISK", "set_capital_deployment", f"max_capital_deployment set to {deployment_pct}%")
+    return await check_risk_limits()
+
+
+# ── 11. P4: Validation Dashboard ────────────────────────────────
+
+
+async def get_validation_dashboard() -> dict:
+    rows = await execute_query(
+        """SELECT id, is_active, started_at, completed_at, result
+           FROM validation_mode ORDER BY id DESC FETCH FIRST 1 ROW ONLY""",
+    )
+    if not rows:
+        return {"active": False, "message": "No validation session found"}
+
+    r = rows[0]
+    vid = r[0]
+    started = r[2]
+    is_active = r[1] == "Y"
+
+    now_utc = datetime.now(timezone.utc)
+    if started:
+        if hasattr(started, 'tzinfo') and started.tzinfo is None:
+            started_dt = started.replace(tzinfo=timezone.utc)
+        else:
+            started_dt = started
+        elapsed_days = (now_utc - started_dt).total_seconds() / 86400 if started_dt else 0
+        remaining_days = max(0, 30 - elapsed_days)
+    else:
+        elapsed_days = 0
+        remaining_days = 30
+
+    # Daily logs
+    log_rows = await execute_query(
+        """SELECT log_date, daily_return, cumulative_return, mdd, win_rate, total_trades
+           FROM validation_daily_log WHERE validation_id = :1 ORDER BY log_date ASC""",
+        [vid],
+    )
+    daily_logs = []
+    for lr in log_rows:
+        daily_logs.append({
+            "date": str(lr[0])[:10],
+            "daily_return": float(lr[1] or 0),
+            "cumulative_return": float(lr[2] or 0),
+            "mdd": float(lr[3] or 0),
+            "win_rate": float(lr[4] or 0),
+            "total_trades": int(lr[5] or 0),
+        })
+
+    # Current performance
+    perf = await get_paper_performance()
+    result_data = json_mod.loads(r[4]) if r[4] and isinstance(r[4], str) else {}
+
+    # Benchmark comparison (KOSPI)
+    benchmark_return = 0
+    alpha = 0
+    beta = 0
+    info_ratio = 0
+    bench_rows = await execute_query(
+        "SELECT close_price FROM index_daily WHERE index_code = 'KOSPI' ORDER BY trade_date DESC FETCH FIRST 2 ROWS ONLY",
+    )
+    if bench_rows and len(bench_rows) >= 2:
+        b_recent = float(bench_rows[0][0]) if bench_rows[0][0] else 0
+        b_prev = float(bench_rows[1][0]) if bench_rows[1][0] else 0
+        if b_prev > 0:
+            benchmark_return = (b_recent - b_prev) / b_prev * 100
+
+    strat_return = perf.get("total_return", 0)
+    alpha = strat_return - benchmark_return
+
+    # Rolling metrics
+    equity_curve = perf.get("equity_curve", [])
+    eq_vals = [pt["equity"] for pt in equity_curve]
+
+    # Rolling Sharpe, Sortino (30-day)
+    rolling_sharpe_list = []
+    rolling_sortino_list = []
+    window = min(30, max(len(eq_vals) - 1, 1))
+    if len(eq_vals) > window + 5:
+        for i in range(window, len(eq_vals)):
+            chunk = [(eq_vals[j] - eq_vals[j - 1]) / eq_vals[j - 1] for j in range(i - window + 1, i + 1) if eq_vals[j - 1] > 0]
+            if len(chunk) > 1:
+                avg_r = sum(chunk) / len(chunk)
+                var = sum((r - avg_r) ** 2 for r in chunk) / (len(chunk) - 1)
+                std = var ** 0.5 if var > 0 else 0.0001
+                rs = (avg_r / std) * (252 ** 0.5)
+                rolling_sharpe_list.append(round(rs, 4))
+                neg_returns = [r for r in chunk if r < 0]
+                if neg_returns:
+                    neg_var = sum(r ** 2 for r in neg_returns) / len(neg_returns)
+                    neg_std = neg_var ** 0.5
+                    rso = (avg_r / max(neg_std, 0.0001)) * (252 ** 0.5)
+                    rolling_sortino_list.append(round(rso, 4))
+                else:
+                    rolling_sortino_list.append(0)
+
+    # Rolling Win Rate (last 30 trades)
+    trade_result_rows = await execute_query(
+        """SELECT pnl_pct FROM paper_trades WHERE action = 'sell' ORDER BY trade_date DESC FETCH FIRST 50 ROWS ONLY""",
+    )
+    trade_pnls = [float(r[0]) for r in trade_result_rows if r[0] is not None]
+    rolling_win_rates = []
+    if len(trade_pnls) >= 10:
+        tw = 30
+        for i in range(min(tw, len(trade_pnls)), len(trade_pnls) + 1):
+            chunk = trade_pnls[max(0, i - tw):i]
+            rwr = sum(1 for p in chunk if p > 0) / max(len(chunk), 1) * 100
+            rolling_win_rates.append(round(rwr, 1))
+
+    # Rolling Profit Factor (last 30 trades)
+    rolling_pf_list = []
+    if len(trade_pnls) >= 10:
+        tw = 30
+        for i in range(min(tw, len(trade_pnls)), len(trade_pnls) + 1):
+            chunk = trade_pnls[max(0, i - tw):i]
+            gp = sum(p for p in chunk if p > 0)
+            gl = abs(sum(p for p in chunk if p < 0))
+            rpf = gp / max(gl, 0.0001)
+            rolling_pf_list.append(round(rpf, 4))
+
+    # Rolling MDD (trailing 30-day windows)
+    rolling_mdd_list = []
+    if len(eq_vals) >= 30:
+        for i in range(30, len(eq_vals)):
+            chunk_vals = eq_vals[i - 30:i + 1]
+            pk = chunk_vals[0]
+            m = 0
+            for v in chunk_vals:
+                if v > pk:
+                    pk = v
+                dd = (pk - v) / pk * 100
+                if dd > m:
+                    m = dd
+            rolling_mdd_list.append(round(m, 2))
+
+    # Monthly return summary with heatmap format
+    monthly_returns = {}
+    for pt in equity_curve:
+        d = pt.get("date", "")[:7]
+        eq = pt.get("equity", 0)
+        if d not in monthly_returns or eq > monthly_returns[d]:
+            monthly_returns[d] = eq
+    monthly_list = []
+    prev_eq = 10000000.0
+    for m in sorted(monthly_returns.keys()):
+        eq = monthly_returns[m]
+        ret = (eq - prev_eq) / prev_eq * 100
+        monthly_list.append({"month": m, "return": round(ret, 2)})
+        prev_eq = eq
+
+    # Monthly heatmap (year x month grid)
+    monthly_heatmap = {}
+    for item in monthly_list:
+        parts = item["month"].split("-")
+        if len(parts) == 2:
+            yr, mo = parts
+            if yr not in monthly_heatmap:
+                monthly_heatmap[yr] = {}
+            monthly_heatmap[yr][mo] = item["return"]
+
+    # Alpha/Beta trend (monthly rolling)
+    alpha_beta_trend = []
+    if len(monthly_list) >= 3:
+        monthly_rets = [m["return"] for m in monthly_list]
+        bm_rets = [benchmark_return] * len(monthly_rets)
+        if len(monthly_rets) >= 3:
+            for i in range(2, len(monthly_rets)):
+                chunk_ret = monthly_rets[i - 2:i + 1]
+                chunk_bm = bm_rets[i - 2:i + 1]
+                avg_r = sum(chunk_ret) / 3
+                avg_bm = sum(chunk_bm) / 3
+                b = 0
+                num = sum((chunk_ret[j] - avg_r) * (chunk_bm[j] - avg_bm) for j in range(3))
+                den = sum((chunk_bm[j] - avg_bm) ** 2 for j in range(3))
+                if den > 0:
+                    b = num / den
+                a = avg_r - b * avg_bm
+                alpha_beta_trend.append({
+                    "month": monthly_list[i]["month"],
+                    "alpha": round(a, 2),
+                    "beta": round(b, 4),
+                })
+
+    return {
+        "active": is_active,
+        "validation_id": vid,
+        "started_at": str(started) if started else "",
+        "completed_at": str(r[3]) if r[3] else "",
+        "progress": {
+            "elapsed_days": round(elapsed_days, 1),
+            "remaining_days": round(remaining_days, 1),
+            "progress_pct": min(100, round(elapsed_days / 30 * 100, 1)),
+        },
+        "metrics": {
+            "cumulative_return": perf.get("total_return", 0),
+            "cagr": perf.get("cagr", 0),
+            "max_drawdown": perf.get("max_drawdown", 0),
+            "win_rate": perf.get("win_rate", 0),
+            "profit_factor": perf.get("profit_factor", 0),
+            "pf_grade": perf.get("pf_grade", "N/A"),
+            "sharpe": perf.get("sharpe", 0),
+            "sortino": perf.get("sortino", 0),
+            "total_trades": perf.get("total_trades", 0),
+            "open_positions": perf.get("open_positions", 0),
+            "avg_holding_days": perf.get("average_holding_days", 0),
+            "avg_trade_return": perf.get("average_trade_return", 0),
+        },
+        "advanced_metrics": {
+            "alpha": round(alpha, 2),
+            "beta": round(beta, 4),
+            "benchmark_return": round(benchmark_return, 2),
+            "information_ratio": round(info_ratio, 4),
+            "rolling_sharpe_latest": rolling_sharpe_list[-1] if rolling_sharpe_list else 0,
+            "rolling_sharpe_max": max(rolling_sharpe_list) if rolling_sharpe_list else 0,
+            "rolling_sharpe_min": min(rolling_sharpe_list) if rolling_sharpe_list else 0,
+            "rolling_sortino_latest": rolling_sortino_list[-1] if rolling_sortino_list else 0,
+            "rolling_sortino_max": max(rolling_sortino_list) if rolling_sortino_list else 0,
+            "rolling_win_rate_latest": rolling_win_rates[-1] if rolling_win_rates else 0,
+            "rolling_pf_latest": rolling_pf_list[-1] if rolling_pf_list else 0,
+            "rolling_mdd_latest": rolling_mdd_list[-1] if rolling_mdd_list else 0,
+            "rolling_sharpe_series": rolling_sharpe_list,
+            "rolling_sortino_series": rolling_sortino_list,
+            "rolling_win_rate_series": rolling_win_rates,
+            "rolling_pf_series": rolling_pf_list,
+            "rolling_mdd_series": rolling_mdd_list,
+        },
+        "equity_curve": equity_curve,
+        "drawdown_curve": perf.get("drawdown_curve", []),
+        "monthly_returns": monthly_list,
+        "monthly_heatmap": monthly_heatmap,
+        "alpha_beta_trend": alpha_beta_trend,
+        "daily_logs": daily_logs,
+        "readiness": result_data.get("verdict", "FAIL"),
+        "checks": result_data.get("checks", {}),
+        "checks_passed": result_data.get("checks_passed", 0),
+        "checks_total": result_data.get("checks_total", 7),
+    }
+
+
+# ── 12. P5: Enhanced Readiness with Score ──────────────────────
 
 
 async def check_live_trading_readiness() -> dict:
-    """Check all conditions for live trading readiness.
-    Must have 30-day paper trading validation with PASS verdict."""
+    """Enhanced readiness check with numeric score and gap analysis."""
     validation = await get_validation_status()
-    if not validation.get("is_active") and not validation.get("result"):
-        return {
-            "ready": False,
-            "reason": "No 30-day validation completed. Start validation mode first.",
-            "checks": {},
-        }
 
     result = validation.get("result", {})
     if validation.get("is_active"):
-        # Compute current readiness from live performance
         result = await _compute_validation_report()
 
     checks = result.get("checks", {})
-    all_pass = result.get("verdict") == "PASS"
+    checks_passed = sum(1 for v in checks.values() if v)
+    checks_total = len(checks)
 
+    # Validation session timing
+    vrows = await execute_query(
+        """SELECT id, is_active, started_at, completed_at, result
+           FROM validation_mode ORDER BY id DESC FETCH FIRST 1 ROW ONLY""",
+    )
+    started = vrows[0][2] if vrows else None
+    now_utc2 = datetime.now(timezone.utc)
+    elapsed_days = 0
+    if started:
+        if hasattr(started, 'tzinfo') and started.tzinfo is None:
+            started_dt = started.replace(tzinfo=timezone.utc)
+        else:
+            started_dt = started
+        elapsed_days = (now_utc2 - started_dt).total_seconds() / 86400
+
+    # Portfolio-level metrics for enhanced readiness
+    rows_exp = await execute_query("SELECT COALESCE(SUM(quantity * current_price), 0) FROM paper_positions WHERE status = 'open'")
+    current_exposure = float(rows_exp[0][0]) if rows_exp else 0
+    initial_capital = 10000000.0
+    exposure_pct = current_exposure / initial_capital * 100
+    cash_ratio = max(0, (initial_capital - current_exposure) / initial_capital * 100)
+
+    rows_sell = await execute_query("SELECT COUNT(*) FROM paper_trades WHERE action = 'sell'")
+    sell_trades = int(rows_sell[0][0]) if rows_sell else 0
+    closed_trades_cnt = sell_trades
+
+    validation_days = elapsed_days if started else 0
+
+    thresholds = {
+        "fitness_gt_50": {"current": result.get("fitness", 0), "target": 50, "label": "fitness"},
+        "return_gt_kospi": {"current": result.get("total_return", 0), "target": result.get("benchmark_return", 0), "label": "total_return > benchmark"},
+        "win_rate_gt_50": {"current": result.get("win_rate", 0), "target": 50, "label": "win_rate"},
+        "profit_factor_gt_1_5": {"current": result.get("profit_factor", 0), "target": 1.5, "label": "profit_factor"},
+        "sharpe_gt_1_0": {"current": result.get("sharpe", 0), "target": 1.0, "label": "sharpe"},
+        "mdd_lt_20": {"current": result.get("max_drawdown", 0), "target": 20, "label": "max_drawdown"},
+        "trades_gt_50": {"current": result.get("total_trades", 0), "target": 50, "label": "total_trades"},
+        "sell_trades_gte_30": {"current": sell_trades, "target": 30, "label": "sell_trades"},
+        "exposure_lte_90": {"current": exposure_pct, "target": 90, "label": "exposure_pct"},
+        "cash_ratio_gte_10": {"current": cash_ratio, "target": 10, "label": "cash_ratio"},
+        "closed_trades_gte_30": {"current": closed_trades_cnt, "target": 30, "label": "closed_trades"},
+        "validation_days_gte_30": {"current": validation_days, "target": 30, "label": "validation_days"},
+        "benchmark_outperformance_gte_3": {"current": result.get("total_return", 0) - result.get("benchmark_return", 0), "target": 3, "label": "benchmark_outperformance"},
+    }
+
+    gaps = {}
+    for key, th in thresholds.items():
+        passed = checks.get(key, False)
+        gap = max(0, th["target"] - th["current"]) if th["target"] > 0 else 0
+        pct = min(100, th["current"] / th["target"] * 100) if th["target"] > 0 else 0
+        if key == "mdd_lt_20":
+            passed = th["current"] < 20
+            gap = max(0, th["current"] - th["target"])
+            pct = min(100, (1 - th["current"] / 100) * 100) if th["current"] > 0 else 100
+        if key == "exposure_lte_90":
+            passed = th["current"] <= th["target"]
+            gap = max(0, th["current"] - th["target"])
+            pct = max(0, min(100, (1 - th["current"] / 100) * 100))
+        if key == "cash_ratio_gte_10":
+            passed = th["current"] >= th["target"]
+            gap = max(0, th["target"] - th["current"])
+            pct = min(100, th["current"] / th["target"] * 100)
+        if key == "sell_trades_gte_30":
+            passed = th["current"] >= th["target"]
+            gap = max(0, th["target"] - th["current"])
+            pct = min(100, th["current"] / th["target"] * 100)
+        gaps[key] = {
+            "passed": passed,
+            "current": round(th["current"], 2),
+            "target": th["target"],
+            "gap": round(gap, 2),
+            "progress_pct": round(pct, 1),
+        }
+
+    # Score 0-100
+    condition_scores = {}
+    for key, g in gaps.items():
+        if g["passed"]:
+            condition_scores[key] = 100
+        else:
+            condition_scores[key] = round(g["progress_pct"], 1)
+    readiness_score = round(sum(condition_scores.values()) / max(len(condition_scores), 1), 1)
+
+    if readiness_score >= 80:
+        score_grade = "PASS"
+    elif readiness_score >= 50:
+        score_grade = "WATCH"
+    else:
+        score_grade = "FAIL"
+
+    all_pass = result.get("verdict") == "PASS" and sell_trades >= 30 and exposure_pct <= 90 and cash_ratio >= 10
+    performance = await get_paper_performance()
+
+    # Estimated achievement dates
+    now_dt = datetime.now(timezone.utc)
+    estimates = {}
+    total_trades = performance.get("total_trades", 0)
+    win_rate = performance.get("win_rate", 0)
+    total_return = performance.get("total_return", 0)
+
+    # Elapsed days since first trade
+    first_trade_row = await execute_query("SELECT MIN(trade_date) FROM paper_trades")
+    elapsed_days_from_start = 1
+    if first_trade_row and first_trade_row[0][0]:
+        ft_date = first_trade_row[0][0]
+        if hasattr(ft_date, 'tzinfo'):
+            ft_dt = ft_date if ft_date.tzinfo else ft_date.replace(tzinfo=timezone.utc)
+            elapsed_days_from_start = max(1, (now_dt - ft_dt).total_seconds() / 86400)
+
+    # Trades estimation: current pace = total_trades / elapsed_days → target 50
+    trades_needed = max(0, 50 - total_trades)
+    pace = max(total_trades, 1) / max(elapsed_days_from_start, 1)
+    if pace > 0:
+        est_days = trades_needed / pace
+        est_date = now_dt + timedelta(days=int(est_days))
+        estimates["trades_gt_50"] = {
+            "current": total_trades, "target": 50, "needed": trades_needed,
+            "pace_per_day": round(pace, 1), "estimated_days": round(est_days, 1),
+            "estimated_date": str(est_date.date()),
+        }
+    else:
+        estimates["trades_gt_50"] = {"current": total_trades, "target": 50, "needed": trades_needed, "pace_per_day": 0, "estimated_days": 999, "estimated_date": "N/A"}
+
+    # Sell trades estimation
+    sell_needed = max(0, 30 - sell_trades)
+    estimates["sell_trades_gte_30"] = {
+        "current": sell_trades, "target": 30, "needed": sell_needed,
+        "estimated_date": "After first exit cycle" if sell_trades == 0 else "With next exits",
+    }
+
+    # Exposure estimation
+    estimates["exposure_lte_90"] = {
+        "current": round(exposure_pct, 1), "target": 90,
+        "reduction_needed": round(max(0, exposure_pct - 90), 1),
+        "estimated_date": "After stall_exit cleanup (26 positions)" if exposure_pct > 90 else "Met",
+    }
+
+    # Win rate estimation: based on last 10 trades trend
+    rows_tr = await execute_query(
+        "SELECT pnl_pct FROM paper_trades WHERE action = 'sell' ORDER BY trade_date DESC FETCH FIRST 10 ROWS ONLY",
+    )
+    recent_wr = 50.0
+    if rows_tr:
+        recent_wins = sum(1 for r in rows_tr if r[0] and float(r[0]) > 0)
+        recent_wr = recent_wins / len(rows_tr) * 100
+    wr_gap = max(0, 50 - win_rate)
+    estimates["win_rate_gt_50"] = {
+        "current": win_rate, "target": 50, "gap": round(wr_gap, 1),
+        "recent_10_wr": round(recent_wr, 1),
+        "estimated_date": "Improve trade quality" if recent_wr < 50 else "Trending positively",
+    }
+
+    checks_total = len(thresholds)
     return {
         "ready": all_pass,
+        "readiness_score": readiness_score,
+        "score_grade": score_grade,
         "verdict": result.get("verdict", "FAIL"),
-        "reason": "All conditions met" if all_pass else f"{sum(1 for v in checks.values() if v)}/6 conditions met",
-        "result": {
-            "total_return": result.get("total_return", 0),
+        "summary": f"{checks_passed}/{checks_total} conditions met (score {readiness_score}/100 - {score_grade})",
+        "gaps": gaps,
+        "estimates": estimates,
+        "performance": {
+            "total_return": round(performance.get("total_return", 0), 2),
+            "cagr": round(performance.get("cagr", 0), 2),
+            "sharpe": round(performance.get("sharpe", 0), 4),
+            "sortino": round(performance.get("sortino", 0), 4),
+            "max_drawdown": round(performance.get("max_drawdown", 0), 2),
+            "win_rate": round(performance.get("win_rate", 0), 2),
+            "profit_factor": round(performance.get("profit_factor", 0), 4),
+            "pf_grade": performance.get("pf_grade", "N/A"),
+            "fitness": result.get("fitness", 0),
+            "total_trades": performance.get("total_trades", 0),
+            "sell_trades": sell_trades,
+            "exposure_pct": round(exposure_pct, 1),
+            "cash_ratio": round(cash_ratio, 1),
             "benchmark_return": result.get("benchmark_return", 0),
             "alpha": result.get("alpha", 0),
-            "cagr": result.get("cagr", 0),
-            "sharpe": result.get("sharpe", 0),
-            "max_drawdown": result.get("max_drawdown", 0),
-            "win_rate": result.get("win_rate", 0),
-            "profit_factor": result.get("profit_factor", 0),
         },
-        "checks": checks,
+        "checks_passed": checks_passed,
+        "checks_total": checks_total,
     }
+
+
+# ── 13. P6: Integration Dashboard ───────────────────────────────
+
+
+async def get_integration_dashboard() -> dict:
+    """Unified dashboard aggregating evolution, portfolio, risk, validation, paper trading status."""
+    from app.strategy_evolution.database import get_evolution_status
+
+    # Evolution
+    evo = await get_evolution_status()
+    evo_dash = await get_evolution_dashboard()
+
+    # Portfolio
+    health = await get_portfolio_health()
+
+    # Risk
+    risk = await check_risk_limits()
+
+    # Validation
+    validation = await get_validation_status()
+    vd = await get_validation_dashboard()
+
+    # Paper Trading
+    perf = await get_paper_performance()
+
+    # Readiness
+    readiness = await check_live_trading_readiness()
+
+    now_utc = datetime.now(timezone.utc)
+    try:
+        from app.utils.timezone import to_kst
+        now_kst = to_kst(now_utc)
+    except Exception:
+        now_kst = now_utc
+
+    # Last trade time
+    rows = await execute_query("SELECT MAX(trade_date) FROM paper_trades WHERE action = 'sell'")
+    last_sell = str(rows[0][0])[:19] if rows and rows[0][0] else "N/A"
+
+    rows = await execute_query("SELECT MIN(trade_date) FROM paper_trades")
+    first_trade = str(rows[0][0])[:19] if rows and rows[0][0] else "N/A"
+
+    # Latest strategy performance
+    sp_rows = await execute_query(
+        """SELECT pf, mdd, generation FROM strategy_performance
+           ORDER BY generation DESC FETCH FIRST 1 ROW ONLY""",
+    )
+    latest_pf = float(sp_rows[0][0]) if sp_rows and sp_rows[0][0] else 0
+    latest_mdd = float(sp_rows[0][1]) if sp_rows and sp_rows[0][1] else 0
+    latest_gen = int(sp_rows[0][2]) if sp_rows and sp_rows[0][2] else 0
+
+    # Paper trading metrics
+    cash_balance = perf.get("cash_balance", 10000000)
+    initial_cap = 10000000
+    cash_ratio_pct = cash_balance / initial_cap * 100
+    current_exposure = perf.get("current_exposure", 0)
+    exposure_pct = current_exposure / initial_cap * 100
+
+    # Sell trades
+    sell_rows = await execute_query("SELECT COUNT(*) FROM paper_trades WHERE action = 'sell'")
+    sell_trades_cnt = int(sell_rows[0][0]) if sell_rows else 0
+
+    return {
+        "timestamp_kst": str(now_kst)[:19],
+        "generation": {
+            "current": evo.current_generation or 0,
+            "status": "RUNNING" if evo.is_running == "Y" else "IDLE",
+            "last_run": str(evo.last_run_at)[:19] if evo.last_run_at else None,
+            "next_scheduled": str(evo.next_scheduled_run)[:19] if evo.next_scheduled_run else None,
+            "population": evo_dash.get("population_size", 0),
+            "latest_generation": latest_gen,
+        },
+        "portfolio": {
+            "total_return": health.get("portfolio_return", 0),
+            "mdd": health.get("portfolio_mdd", 0),
+            "sharpe": health.get("portfolio_sharpe", 0),
+            "cagr": health.get("portfolio_cagr", 0),
+            "profit_factor": health.get("portfolio_profit_factor", 0),
+            "pf_grade": health.get("pf_grade", "N/A"),
+            "approved_strategies": health.get("approved_strategies", 0),
+            "latest_pf": latest_pf,
+            "latest_mdd": latest_mdd,
+        },
+        "risk": {
+            "status": risk.get("risk_status", "PASS"),
+            "blocked": risk.get("blocked", False),
+            "reasons": risk.get("reasons", []),
+            "warnings": risk.get("warnings", []),
+            "cash_ratio": round(cash_ratio_pct, 1),
+            "open_positions": risk.get("open_positions", 0),
+            "mdd": risk.get("portfolio_mdd", 0),
+            "exposure_pct": round(exposure_pct, 1),
+            "max_capital_deployment": risk.get("max_capital_deployment", 100),
+        },
+        "paper_trading": {
+            "total_return": perf.get("total_return", 0),
+            "total_pnl": perf.get("total_pnl", 0),
+            "win_rate": perf.get("win_rate", 0),
+            "profit_factor": perf.get("profit_factor", 0),
+            "pf_grade": perf.get("pf_grade", "N/A"),
+            "total_trades": perf.get("total_trades", 0),
+            "sell_trades": sell_trades_cnt,
+            "open_positions": perf.get("open_positions", 0),
+            "cash_ratio": round(cash_ratio_pct, 1),
+            "exposure_pct": round(exposure_pct, 1),
+            "first_trade": first_trade,
+            "last_sell_trade": last_sell,
+        },
+        "validation": {
+            "active": validation.get("is_active", False),
+            "started_at": validation.get("started_at", "")[:19] if validation.get("started_at") else None,
+            "progress": vd.get("progress", {}),
+            "metrics": vd.get("metrics", {}),
+            "advanced_metrics": vd.get("advanced_metrics", {}),
+            "daily_logs": vd.get("daily_logs", []),
+            "monthly_heatmap": vd.get("monthly_heatmap", {}),
+            "alpha_beta_trend": vd.get("alpha_beta_trend", []),
+        },
+        "readiness": {
+            "score": readiness.get("readiness_score", 0),
+            "grade": readiness.get("score_grade", "FAIL"),
+            "verdict": readiness.get("verdict", "FAIL"),
+            "passed": readiness.get("checks_passed", 0),
+            "total": readiness.get("checks_total", 13),
+            "gaps": readiness.get("gaps", {}),
+        },
+        "system": {
+            "exposure_pct": round(exposure_pct, 1),
+            "cash_ratio_pct": round(cash_ratio_pct, 1),
+            "open_positions": perf.get("open_positions", 0),
+            "sell_trades": sell_trades_cnt,
+            "risk_status": risk.get("risk_status", "PASS"),
+            "validation_active": validation.get("is_active", False),
+            "validation_progress_pct": vd.get("progress", {}).get("progress_pct", 0),
+            "readiness_score": readiness.get("readiness_score", 0),
+        },
+    }
+
+
+

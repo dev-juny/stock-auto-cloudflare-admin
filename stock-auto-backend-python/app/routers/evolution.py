@@ -1,15 +1,24 @@
 from __future__ import annotations
 
+import asyncio
+import logging
+from datetime import datetime, timezone
+
 from fastapi import APIRouter, HTTPException, Query
 
 from app.strategy_evolution import EvolutionOrchestrator, EvolutionConfig
-from app.strategy_evolution.models import EvolutionStatus, EvolutionStrategy, FitnessScore, GenerationSummary
+from app.strategy_evolution.models import EvolutionStatus, EvolutionStrategy, FitnessScore, GenerationSummary, StrategyParams
 from app.strategy_evolution.database import (
     compare_generations,
     get_generation_strategies,
     get_generation_universe,
+    save_performance as db_save_perf,
 )
 from app.services.service_db import load_evolution_config
+from app.database import execute_query, execute_non_query
+from app.strategy_evolution.fitness import FitnessCalculator
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/evolution", tags=["evolution"])
 _orchestrator: EvolutionOrchestrator | None = None
@@ -130,6 +139,140 @@ async def history_compare(body: dict) -> dict:
         "universe": summary.get("universe", {}),
         "strategy_changes": summary.get("changed", []),
     }
+
+
+# ── P1: Batch Recalculate All Strategies ─────────────────────────
+
+_recalc_status = {"running": False, "total": 0, "processed": 0, "errors": 0, "started_at": None}
+
+
+@router.get("/recalculation-status")
+async def recalculation_status():
+    """Get progress of batch strategy recalculation."""
+    global _recalc_status
+    return {
+        "running": _recalc_status["running"],
+        "total": _recalc_status["total"],
+        "processed": _recalc_status["processed"],
+        "progress_pct": round(_recalc_status["processed"] / max(_recalc_status["total"], 1) * 100, 1),
+        "errors": _recalc_status["errors"],
+        "started_at": _recalc_status.get("started_at"),
+    }
+
+
+@router.post("/recalculate-all")
+async def recalculate_all():
+    """Start batch recalculation of all strategies with updated evaluator (PF/MDD fix).
+    
+    This runs as a background task and processes strategies in batches of 100.
+    Check progress via GET /api/evolution/recalculation-status
+    """
+    global _recalc_status
+    if _recalc_status["running"]:
+        return {"message": "Recalculation already in progress", "status": _recalc_status}
+
+    import asyncio
+    from app.strategy_evolution.evaluator import StrategyEvaluator
+    from app.strategy_evolution.database import save_performance as db_save_perf
+    from app.strategy_evolution.database import log_history as db_log_history
+    from app.strategy_evolution.fitness import FitnessCalculator
+    from app.strategy_evolution.database import get_or_create_generation_universe
+    from app.database import execute_query
+
+    cfg = get_orch().config
+
+    _recalc_status["running"] = True
+    _recalc_status["started_at"] = str(datetime.now(timezone.utc))
+    _recalc_status["errors"] = 0
+
+    async def _recalc_batch():
+        global _recalc_status
+        from app.strategy_evolution.evaluator import StrategyEvaluator as Eval
+        evaluator = Eval(cfg)
+        try:
+            rows = await execute_query(
+                """SELECT id, generation FROM strategy_pool WHERE is_alive = 'Y' ORDER BY id""",
+            )
+            all_strategies = [(int(r[0]), int(r[1])) for r in rows]
+            _recalc_status["total"] = len(all_strategies)
+            _recalc_status["processed"] = 0
+
+            # Reuse universe per generation
+            universe_cache = {}
+
+            for i, (sid, gen) in enumerate(all_strategies):
+                try:
+                    if gen not in universe_cache:
+                        universe_cache[gen] = await get_or_create_generation_universe(gen)
+                    univ = universe_cache[gen]
+                    if not univ:
+                        _recalc_status["processed"] += 1
+                        continue
+
+                    perf = await evaluator.evaluate_strategy_for_recalc(sid, gen, univ)
+                    if perf and perf.get("total_trades", 0) > 0:
+                        ret = perf.get("total_return", 0)
+                        wr = perf.get("win_rate", 0)
+                        mdd = abs(perf.get("max_drawdown", 0))
+                        w_ret = cfg.fitness_return_weight
+                        w_wr = cfg.fitness_winrate_weight
+                        w_mdd = cfg.fitness_mdd_penalty
+                        fit = (ret * w_ret) + (wr * w_wr) - (mdd * w_mdd)
+                        fs = FitnessScore(
+                            strategy_id=sid,
+                            generation=gen,
+                            total_return=round(ret, 4),
+                            win_rate=round(wr, 2),
+                            max_drawdown=round(mdd, 4),
+                            profit_factor=round(perf.get("profit_factor", 0), 4),
+                            total_trades=perf.get("total_trades", 0),
+                            fitness=round(fit, 4),
+                            calculated_at=str(datetime.now(timezone.utc)),
+                        )
+                        await db_save_perf(fs)
+                except Exception as e:
+                    _recalc_status["errors"] += 1
+                    logger.error("[RECALC] Error strategy %d: %s", sid, str(e))
+
+                _recalc_status["processed"] += 1
+
+                if (i + 1) % 100 == 0:
+                    await asyncio.sleep(0)
+
+            await evaluate_generation_stats()
+        finally:
+            _recalc_status["running"] = False
+
+    asyncio.create_task(_recalc_batch())
+    return {
+        "message": f"Batch recalculation started for {_recalc_status['total'] if _recalc_status['total'] else '?'} strategies",
+        "status": _recalc_status,
+    }
+
+
+async def evaluate_generation_stats():
+    from app.database import execute_query
+    from app.strategy_evolution.database import get_generations
+    gens = await get_generations()
+    for g in gens:
+        gen_id = g.generation
+        rows = await execute_query(
+            """SELECT COUNT(*), ROUND(AVG(fitness_score),4), ROUND(MAX(fitness_score),4),
+                      ROUND(AVG(total_return),4), ROUND(AVG(win_rate),2), ROUND(AVG(max_drawdown),4)
+               FROM strategy_performance pf
+               WHERE pf.generation = (SELECT MAX(pf2.generation) FROM strategy_performance pf2 WHERE pf2.strategy_id = pf.strategy_id)
+                 AND pf.generation = :1 AND pf.total_trades > 0""",
+            [gen_id],
+        )
+        if rows and rows[0][0] > 0:
+            r = rows[0]
+            await execute_non_query(
+                """UPDATE strategy_generation SET avg_fitness=:1, best_fitness=:2, avg_return=:3, avg_winrate=:4, avg_mdd=:5
+                   WHERE generation=:6""",
+                [round(float(r[1] or 0), 4), round(float(r[2] or 0), 4),
+                 round(float(r[3] or 0), 4), round(float(r[4] or 0), 2),
+                 round(float(r[5] or 0), 4), gen_id],
+            )
 
 
 

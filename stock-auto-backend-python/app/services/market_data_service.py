@@ -108,6 +108,7 @@ def ensure_market_tables():
                 mdd NUMBER(10,4) DEFAULT 0,
                 sharpe_ratio NUMBER(10,4) DEFAULT 0,
                 cagr NUMBER(10,4) DEFAULT 0,
+                profit_factor NUMBER(10,4) DEFAULT 0,
                 trade_count NUMBER(8) DEFAULT 0,
                 details_json CLOB,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -211,6 +212,7 @@ def ensure_market_tables():
                 mdd NUMBER(10,4) DEFAULT 0,
                 sharpe_ratio NUMBER(10,4) DEFAULT 0,
                 cagr NUMBER(10,4) DEFAULT 0,
+                profit_factor NUMBER(10,4) DEFAULT 0,
                 trade_count NUMBER(8) DEFAULT 0,
                 details_json CLOB,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -305,6 +307,7 @@ def ensure_market_tables():
         col_migrations = [
             ("PAPER_TRADES", "PNL_AMT", "NUMBER(15,2) DEFAULT 0"),
             ("PAPER_POSITIONS", "HIGHEST_PRICE", "NUMBER(15,2)"),
+            ("PORTFOLIO_BACKTEST", "PROFIT_FACTOR", "NUMBER(10,4) DEFAULT 0"),
         ]
         for tbl, col, typ in col_migrations:
             cur.execute(f"SELECT COUNT(*) FROM user_tab_columns WHERE table_name = '{tbl}' AND column_name = '{col}'")

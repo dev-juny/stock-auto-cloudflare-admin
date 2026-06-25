@@ -278,9 +278,14 @@ async def run_portfolio_backtest(data: dict):
     daily_values: list[dict] = []
     total_wins = 0
     total_losses = 0
+    gross_profit = 0.0
+    gross_loss = 0.0
     peak_capital = initial_capital
     max_drawdown = 0
     entry_idx = 0
+    max_position_budget = 500000.0
+    max_exposure = initial_capital
+    current_exposure = 0.0
 
     for date_str in trading_dates:
         # Enter new positions scheduled for this date
@@ -289,30 +294,37 @@ async def run_portfolio_backtest(data: dict):
             if ticker not in positions and weight > 0:
                 price = price_map.get(ticker, {}).get(date_str, 0)
                 if price > 0:
-                    alloc_amount = cash * weight
-                    cost_with_fees = alloc_amount * (1 + commission_pct)
+                    remaining_capacity = max(0, max_exposure - current_exposure)
+                    alloc_amount = min(cash * weight, max_position_budget, remaining_capacity, cash * 0.9)
                     qty = int(alloc_amount / price)
-                    if qty > 0 and cost_with_fees <= cash:
-                        buy_price = price * (1 + slippage_pct)
-                        buy_cost = qty * buy_price
-                        fees = buy_cost * commission_pct
-                        params = ticker_exit_params.get(ticker, {})
-                        positions[ticker] = {
-                            "qty": qty, "entry": buy_price, "entry_date": date_str,
-                            "highest": price,
-                            "stop_loss_pct": params.get("stop_loss_pct", 0),
-                            "take_profit_pct": params.get("take_profit_pct", 0),
-                            "trailing_activation_pct": params.get("trailing_activation_pct", 0),
-                            "trailing_stop_pct": params.get("trailing_stop_pct", 0),
-                        }
-                        cash -= buy_cost + fees
-                        trade_count += 1
-                        logger.info(
-                            "[BACKTEST] ENTRY %s @ %.0f (qty=%d, weight=%.2f%%, sl=%.1f%%, tp=%.1f%%)",
-                            ticker, price, qty, weight * 100,
-                            params.get("stop_loss_pct", 0) * 100,
-                            params.get("take_profit_pct", 0) * 100,
-                        )
+                    if qty <= 0:
+                        entry_idx += 1
+                        continue
+                    buy_price = price * (1 + slippage_pct)
+                    buy_cost = qty * buy_price
+                    fees = buy_cost * commission_pct
+                    total_entry_cost = buy_cost + fees
+                    if total_entry_cost > cash:
+                        entry_idx += 1
+                        continue
+                    params = ticker_exit_params.get(ticker, {})
+                    positions[ticker] = {
+                        "qty": qty, "entry": buy_price, "entry_date": date_str,
+                        "highest": price,
+                        "stop_loss_pct": params.get("stop_loss_pct", 0),
+                        "take_profit_pct": params.get("take_profit_pct", 0),
+                        "trailing_activation_pct": params.get("trailing_activation_pct", 0),
+                        "trailing_stop_pct": params.get("trailing_stop_pct", 0),
+                    }
+                    cash -= total_entry_cost
+                    current_exposure += qty * price
+                    trade_count += 1
+                    logger.info(
+                        "[BACKTEST] ENTRY %s @ %.0f (qty=%d, weight=%.2f%%, sl=%.1f%%, tp=%.1f%%)",
+                        ticker, price, qty, weight * 100,
+                        params.get("stop_loss_pct", 0) * 100,
+                        params.get("take_profit_pct", 0) * 100,
+                    )
             entry_idx += 1
 
         # Check exit conditions for all open positions
@@ -341,12 +353,15 @@ async def run_portfolio_backtest(data: dict):
                 proceeds = pos["qty"] * price * (1 - slippage_pct)
                 sell_fees = proceeds * (commission_pct + tax_pct)
                 cash += proceeds - sell_fees
-                pnl_pct = ((proceeds - sell_fees) - (pos["qty"] * pos["entry"])) / (pos["qty"] * pos["entry"]) * 100
+                pnl_amt = (proceeds - sell_fees) - (pos["qty"] * pos["entry"])
+                pnl_pct = pnl_amt / (pos["qty"] * pos["entry"]) * 100 if pos["qty"] * pos["entry"] > 0 else 0
                 trade_count += 1
                 if pnl_pct > 0:
                     total_wins += 1
+                    gross_profit += pnl_amt
                 else:
                     total_losses += 1
+                    gross_loss += abs(pnl_amt)
                 logger.info(
                     "[BACKTEST] EXIT %s @ %.0f (%s, pnl=%.1f%%)",
                     ticker, price, exit_reason, pnl_pct,
@@ -377,11 +392,14 @@ async def run_portfolio_backtest(data: dict):
         sell_fees = proceeds * (commission_pct + tax_pct)
         cash += proceeds - sell_fees
         trade_count += 1
-        pnl_pct = ((proceeds - sell_fees) - (pos["qty"] * pos["entry"])) / (pos["qty"] * pos["entry"]) * 100
+        pnl_amt = (proceeds - sell_fees) - (pos["qty"] * pos["entry"])
+        pnl_pct = pnl_amt / (pos["qty"] * pos["entry"]) * 100 if pos["qty"] * pos["entry"] > 0 else 0
         if pnl_pct > 0:
             total_wins += 1
+            gross_profit += pnl_amt
         else:
             total_losses += 1
+            gross_loss += abs(pnl_amt)
         logger.info(
             "[BACKTEST] FINAL_LIQUIDATE %s @ %.0f (pnl=%.1f%%)",
             ticker, last_price, pnl_pct,
@@ -389,6 +407,8 @@ async def run_portfolio_backtest(data: dict):
         del positions[ticker]
 
     final_value = cash
+
+    profit_factor = (gross_profit / max(gross_loss, 0.01)) if gross_loss > 0 else (gross_profit or 0)
 
     total_return = (final_value - initial_capital) / initial_capital * 100
     win_rate = (total_wins / (total_wins + total_losses) * 100) if (total_wins + total_losses) > 0 else 0
@@ -450,12 +470,15 @@ async def run_portfolio_backtest(data: dict):
     })
     await execute_non_query(
         """INSERT INTO portfolio_backtest (portfolio_id, period_start, period_end, initial_capital,
-           return_pct, win_rate, mdd, sharpe_ratio, cagr, trade_count, details_json)
-           VALUES (:1, TO_DATE(:2, 'YYYY-MM-DD'), TO_DATE(:3, 'YYYY-MM-DD'), :4, :5, :6, :7, :8, :9, :10, :11)""",
+           return_pct, win_rate, mdd, sharpe_ratio, cagr, profit_factor, trade_count, details_json)
+           VALUES (:1, TO_DATE(:2, 'YYYY-MM-DD'), TO_DATE(:3, 'YYYY-MM-DD'), :4, :5, :6, :7, :8, :9, :10, :11, :12)""",
         [1, start_date.isoformat(), end_date.isoformat(), initial_capital,
          round(total_return, 2), round(win_rate, 2), round(max_drawdown, 2),
-         round(sharpe, 4), round(cagr, 2), trade_count, details],
+         round(sharpe, 4), round(cagr, 2), round(profit_factor, 4), trade_count, details],
     )
+
+    avg_win = gross_profit / max(total_wins, 1)
+    avg_loss = gross_loss / max(total_losses, 1)
 
     return {
         "return_pct": round(total_return, 2),
@@ -463,6 +486,7 @@ async def run_portfolio_backtest(data: dict):
         "mdd": round(max_drawdown, 2),
         "sharpe_ratio": round(sharpe, 4),
         "cagr": round(cagr, 2),
+        "profit_factor": round(profit_factor, 4),
         "trade_count": trade_count,
         "initial_capital": initial_capital,
         "final_value": round(final_value, 2),
@@ -476,6 +500,12 @@ async def run_portfolio_backtest(data: dict):
         "commission_pct": round(commission_pct * 100, 3),
         "tax_pct": round(tax_pct * 100, 3),
         "slippage_pct": round(slippage_pct * 100, 3),
+        "total_wins": total_wins,
+        "total_losses": total_losses,
+        "gross_profit": round(gross_profit, 2),
+        "gross_loss": round(gross_loss, 2),
+        "avg_win": round(avg_win, 2),
+        "avg_loss": round(avg_loss, 2),
     }
 
 
@@ -483,7 +513,7 @@ async def run_portfolio_backtest(data: dict):
 async def get_backtest_results(limit: int = Query(10, ge=1, le=50)):
     rows = await execute_query(
         """SELECT id, portfolio_id, period_start, period_end, initial_capital,
-                  return_pct, win_rate, mdd, sharpe_ratio, cagr, trade_count, details_json, created_at
+                  return_pct, win_rate, mdd, sharpe_ratio, cagr, profit_factor, trade_count, details_json, created_at
            FROM portfolio_backtest
            ORDER BY id DESC FETCH FIRST :1 ROWS ONLY""",
         [limit],
@@ -501,8 +531,9 @@ async def get_backtest_results(limit: int = Query(10, ge=1, le=50)):
             "mdd": float(r[7] or 0),
             "sharpe_ratio": float(r[8] or 0),
             "cagr": float(r[9] or 0),
-            "trade_count": int(r[10] or 0),
-            "details_json": r[11],
-            "created_at": str(r[12]) if r[12] else "",
+            "profit_factor": float(r[10] or 0),
+            "trade_count": int(r[11] or 0),
+            "details_json": r[12],
+            "created_at": str(r[13]) if r[13] else "",
         })
     return {"items": items}
