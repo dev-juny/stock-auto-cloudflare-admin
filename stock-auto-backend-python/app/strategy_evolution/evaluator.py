@@ -1,8 +1,11 @@
 import asyncio
 import concurrent.futures
+import logging
 import numpy as np
 from datetime import date, timedelta
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 from .models import EvolutionConfig, EvolutionStrategy, StrategyParams
 from .database import (
@@ -87,8 +90,19 @@ class StrategyEvaluator:
         win_rate = wins / trades * 100
         profit_factor = gross_profit / gross_loss if gross_loss > 0.001 else (999.0 if gross_profit > 0 else 0.0)
 
+        return_rate_before_fmt = total_pnl / initial_notional * 100
+
+        logger.info(
+            "Return calc | initialCapital=%s finalEquity=%s profit=%s returnRate(before)=%s returnRate(after)=%s",
+            f"{initial_notional:,.0f}",
+            f"{initial_notional + total_pnl:,.0f}",
+            f"{total_pnl:,.0f}",
+            f"{return_rate_before_fmt:.4f}",
+            f"{round(return_rate_before_fmt, 4)}",
+        )
+
         return {
-            'total_return': round(total_pnl * 100, 4),
+            'total_return': round(return_rate_before_fmt, 4),
             'win_rate': round(win_rate, 2),
             'max_drawdown': round(max_dd, 4),
             'profit_factor': round(profit_factor, 4),

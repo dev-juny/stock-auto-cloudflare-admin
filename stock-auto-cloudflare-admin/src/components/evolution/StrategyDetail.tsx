@@ -53,7 +53,7 @@ function DetailContent({ strategy, onClose }: Props) {
               color={s.total_return >= 0 ? 'text-green-400' : 'text-red-400'} />
             <StatCard label="Win Rate" value={s.total_trades > 0 ? `${s.win_rate.toFixed(1)}%` : '-'}
               color={s.win_rate >= 50 ? 'text-green-400' : 'text-red-400'} />
-            <StatCard label="Max DD" value={s.total_trades > 0 ? `${(s.max_drawdown * 100).toFixed(1)}%` : '-'} color="text-red-400" />
+            <StatCard label="Max DD" value={s.total_trades > 0 ? `${s.max_drawdown.toFixed(1)}%` : '-'} color="text-red-400" />
             <StatCard label="Trades" value={s.total_trades.toString()} color="text-text" />
           </div>
 

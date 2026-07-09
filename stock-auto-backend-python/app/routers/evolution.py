@@ -146,6 +146,13 @@ async def history_compare(body: dict) -> dict:
 _recalc_status = {"running": False, "total": 0, "processed": 0, "errors": 0, "started_at": None}
 
 
+@router.post("/refresh-summaries")
+async def refresh_summaries():
+    """Recalculate all generation summaries from current performance data."""
+    await evaluate_generation_stats()
+    return {"message": "All generation summaries refreshed"}
+
+
 @router.get("/recalculation-status")
 async def recalculation_status():
     """Get progress of batch strategy recalculation."""
@@ -259,9 +266,12 @@ async def evaluate_generation_stats():
         rows = await execute_query(
             """SELECT COUNT(*), ROUND(AVG(fitness_score),4), ROUND(MAX(fitness_score),4),
                       ROUND(AVG(total_return),4), ROUND(AVG(win_rate),2), ROUND(AVG(max_drawdown),4)
-               FROM strategy_performance pf
-               WHERE pf.generation = (SELECT MAX(pf2.generation) FROM strategy_performance pf2 WHERE pf2.strategy_id = pf.strategy_id)
-                 AND pf.generation = :1 AND pf.total_trades > 0""",
+               FROM (
+                   SELECT strategy_id, generation, fitness_score, total_return, win_rate, max_drawdown, total_trades,
+                          ROW_NUMBER() OVER (PARTITION BY strategy_id ORDER BY generation DESC) as rn
+                   FROM strategy_performance
+               ) pf
+               WHERE pf.rn = 1 AND pf.generation = :1 AND NVL(pf.total_trades, 0) > 0""",
             [gen_id],
         )
         if rows and rows[0][0] > 0:
