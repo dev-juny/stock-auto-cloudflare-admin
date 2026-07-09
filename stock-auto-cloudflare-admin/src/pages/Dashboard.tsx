@@ -11,6 +11,8 @@ import { ReadinessCard } from '../components/dashboard/ReadinessCard'
 import { useDashboard } from '../hooks/useDashboard'
 import { Card } from '../components/common/Card'
 import { CardSkeleton } from '../components/common/Skeleton'
+import { Tooltip } from '../components/common/Tooltip'
+import { findGlossary } from '../utils/glossary'
 import { Gauge, TrendingUp, TrendingDown, Activity, ShoppingCart, BarChart3, Calendar, Clock } from 'lucide-react'
 
 export function Dashboard() {
@@ -36,7 +38,9 @@ export function Dashboard() {
           <Card>
             <div className="flex items-center gap-2 mb-2">
               <Gauge size={14} className="text-primary" />
-              <span className="text-[10px] font-medium text-text-muted uppercase tracking-wider">Exposure</span>
+              <Tooltip content={findGlossary('exposure')?.description ?? 'Exposure'}>
+            <span className="text-[10px] font-medium text-text-muted uppercase tracking-wider">Exposure</span>
+          </Tooltip>
             </div>
             <div className="relative pt-1">
               <div className="flex items-center justify-between mb-1">
@@ -55,7 +59,9 @@ export function Dashboard() {
           <Card>
             <div className="flex items-center gap-2 mb-2">
               <Gauge size={14} className="text-blue-400" />
-              <span className="text-[10px] font-medium text-text-muted uppercase tracking-wider">Cash Ratio</span>
+              <Tooltip content={findGlossary('cashRatio')?.description ?? 'Cash Ratio'}>
+            <span className="text-[10px] font-medium text-text-muted uppercase tracking-wider">Cash Ratio</span>
+          </Tooltip>
             </div>
             <div className="relative pt-1">
               <div className="flex items-center justify-between mb-1">
@@ -99,15 +105,21 @@ export function Dashboard() {
             </div>
             <div className="space-y-1">
               <div className="flex items-center justify-between text-xs">
-                <span className="text-text-muted">Generation</span>
+                <Tooltip content={findGlossary('generation')?.description ?? 'Generation'}>
+                  <span className="text-text-muted">Generation</span>
+                </Tooltip>
                 <span className="text-text font-mono tabular-nums">{gen?.current ?? '-'}</span>
               </div>
               <div className="flex items-center justify-between text-xs">
-                <span className="text-text-muted">Best PF</span>
+                <Tooltip content={findGlossary('profitFactor')?.description ?? 'Best PF'}>
+                  <span className="text-text-muted">Best PF</span>
+                </Tooltip>
                 <span className="text-amber-400 font-mono tabular-nums">{dash?.portfolio?.latest_pf?.toFixed(2) ?? '-'}</span>
               </div>
               <div className="flex items-center justify-between text-xs">
-                <span className="text-text-muted">Avg PF</span>
+                <Tooltip content={findGlossary('profitFactor')?.description ?? 'Avg PF'}>
+                  <span className="text-text-muted">Avg PF</span>
+                </Tooltip>
                 <span className="text-text font-mono tabular-nums">{dash?.portfolio?.profit_factor?.toFixed(2) ?? '-'}</span>
               </div>
             </div>
@@ -143,7 +155,9 @@ export function Dashboard() {
           <Card>
             <div className="flex items-center gap-2 mb-2">
               <ShoppingCart size={14} className="text-text-muted" />
-              <span className="text-[10px] font-medium text-text-muted uppercase tracking-wider">Buy Count</span>
+              <Tooltip content={findGlossary('totalTrades')?.description ?? 'Buy Count'}>
+            <span className="text-[10px] font-medium text-text-muted uppercase tracking-wider">Buy Count</span>
+          </Tooltip>
             </div>
             <div className="text-lg font-bold text-green-400 font-mono tabular-nums">
               {((paper?.total_trades ?? 0) - (paper?.sell_trades ?? 0))}
@@ -153,7 +167,9 @@ export function Dashboard() {
           <Card>
             <div className="flex items-center gap-2 mb-2">
               <TrendingDown size={14} className="text-text-muted" />
-              <span className="text-[10px] font-medium text-text-muted uppercase tracking-wider">Open Positions</span>
+              <Tooltip content={findGlossary('maxPositions')?.description ?? 'Open Positions'}>
+                <span className="text-[10px] font-medium text-text-muted uppercase tracking-wider">Open Positions</span>
+              </Tooltip>
             </div>
             <div className="text-lg font-bold text-amber-400 font-mono tabular-nums">
               {paper?.open_positions ?? risk?.open_positions ?? 0}

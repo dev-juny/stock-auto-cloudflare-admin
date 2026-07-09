@@ -95,7 +95,7 @@ for (const vp of MOBILE_VIEWPORTS) {
       await page.goto('/');
       await page.waitForLoadState('networkidle');
       await page.waitForTimeout(1000);
-      const nav = page.locator('nav button').filter({ hasText: 'Strategy' });
+      const nav = page.locator('nav button').filter({ hasText: '전략' });
       if (await nav.count() > 0) await nav.click();
       await page.waitForTimeout(1000);
 
@@ -115,13 +115,13 @@ for (const vp of MOBILE_VIEWPORTS) {
       await page.goto('/');
       await page.waitForLoadState('networkidle');
       await page.waitForTimeout(1000);
-      const nav = page.locator('nav button').filter({ hasText: 'Strategy' });
+      const nav = page.locator('nav button').filter({ hasText: '전략' });
       if (await nav.count() > 0) await nav.click();
       await page.waitForTimeout(1000);
       await page.locator('tbody tr').first().click();
       await page.waitForTimeout(1000);
 
-      await page.locator('button').filter({ hasText: 'Risk' }).click();
+      await page.locator('button').filter({ hasText: '리스크' }).click();
       await page.waitForTimeout(500);
 
       await page.screenshot({ path: `test-results/strategy-detail-risk-${vp.name}.png`, fullPage: false });
@@ -134,13 +134,13 @@ for (const vp of MOBILE_VIEWPORTS) {
       await page.goto('/');
       await page.waitForLoadState('networkidle');
       await page.waitForTimeout(1000);
-      const nav = page.locator('nav button').filter({ hasText: 'Strategy' });
+      const nav = page.locator('nav button').filter({ hasText: '전략' });
       if (await nav.count() > 0) await nav.click();
       await page.waitForTimeout(1000);
       await page.locator('tbody tr').first().click();
       await page.waitForTimeout(1000);
 
-      await page.locator('button').filter({ hasText: 'Promotion' }).click();
+      await page.locator('button').filter({ hasText: '승격' }).click();
       await page.waitForTimeout(500);
 
       await page.screenshot({ path: `test-results/strategy-detail-promotion-${vp.name}.png`, fullPage: false });
@@ -153,13 +153,13 @@ for (const vp of MOBILE_VIEWPORTS) {
       await page.goto('/');
       await page.waitForLoadState('networkidle');
       await page.waitForTimeout(1000);
-      const nav = page.locator('nav button').filter({ hasText: 'Strategy' });
+      const nav = page.locator('nav button').filter({ hasText: '전략' });
       if (await nav.count() > 0) await nav.click();
       await page.waitForTimeout(1000);
       await page.locator('tbody tr').first().click();
       await page.waitForTimeout(1000);
 
-      await page.locator('button').filter({ hasText: 'Validation' }).click();
+      await page.locator('button').filter({ hasText: '검증' }).click();
       await page.waitForTimeout(500);
 
       await page.screenshot({ path: `test-results/strategy-detail-validation-${vp.name}.png`, fullPage: false });
@@ -172,13 +172,13 @@ for (const vp of MOBILE_VIEWPORTS) {
       await page.goto('/');
       await page.waitForLoadState('networkidle');
       await page.waitForTimeout(1000);
-      const nav = page.locator('nav button').filter({ hasText: 'Strategy' });
+      const nav = page.locator('nav button').filter({ hasText: '전략' });
       if (await nav.count() > 0) await nav.click();
       await page.waitForTimeout(1000);
       await page.locator('tbody tr').first().click();
       await page.waitForTimeout(1000);
 
-      await page.locator('button').filter({ hasText: 'Readiness' }).click();
+      await page.locator('button').filter({ hasText: '준비도' }).click();
       await page.waitForTimeout(500);
 
       await page.screenshot({ path: `test-results/strategy-detail-readiness-${vp.name}.png`, fullPage: false });

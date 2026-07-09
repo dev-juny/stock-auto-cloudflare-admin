@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react'
 import { api } from '../../utils/api'
+import { Tooltip } from '../../components/common/Tooltip'
+import { findGlossary } from '../../utils/glossary'
 import { Play, Pause, RotateCw, RefreshCw, Timer, CheckCircle, XCircle, Zap, Database } from 'lucide-react'
 import { formatKST } from '../../utils/kst'
 import { EvolutionStatus } from '../../utils/api'
@@ -120,8 +122,7 @@ export default function SchedulerPage() {
 
   return (
     <div className="space-y-4 pb-12">
-      <div className="flex items-center justify-between">
-        <h2 className="text-lg font-bold text-text">Scheduler</h2>
+      <div className="flex justify-end">
         <button onClick={load} className="p-2 text-text-muted hover:text-text transition-colors">
           <RefreshCw size={14} />
         </button>
@@ -208,7 +209,9 @@ export default function SchedulerPage() {
           </div>
           <div className="p-3 grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
             <div>
-              <span className="text-text-muted">Generation</span>
+              <Tooltip content={findGlossary('generation')?.description ?? 'Generation'}>
+                <span className="text-text-muted">Generation</span>
+              </Tooltip>
               <p className="text-text font-bold text-sm">{evoInfo.status.current_generation}</p>
             </div>
             <div>
@@ -243,10 +246,26 @@ export default function SchedulerPage() {
                     <thead>
                       <tr className="text-text-muted border-t border-surface-border">
                         <th className="text-left px-3 py-1.5 font-medium whitespace-nowrap">Gen</th>
-                        <th className="text-right px-2 py-1.5 font-medium whitespace-nowrap">Fitness</th>
-                        <th className="text-right px-2 py-1.5 font-medium whitespace-nowrap">Return</th>
-                        <th className="text-right px-2 py-1.5 font-medium whitespace-nowrap">Win Rate</th>
-                        <th className="text-right px-2 py-1.5 font-medium whitespace-nowrap">MDD</th>
+                        <th className="text-right px-2 py-1.5 font-medium whitespace-nowrap">
+                          <Tooltip content={findGlossary('fitness')?.description ?? 'Fitness'}>
+                            <span>Fitness</span>
+                          </Tooltip>
+                        </th>
+                        <th className="text-right px-2 py-1.5 font-medium whitespace-nowrap">
+                          <Tooltip content={findGlossary('return')?.description ?? 'Return'}>
+                            <span>Return</span>
+                          </Tooltip>
+                        </th>
+                        <th className="text-right px-2 py-1.5 font-medium whitespace-nowrap">
+                          <Tooltip content={findGlossary('winRate')?.description ?? 'Win Rate'}>
+                            <span>Win Rate</span>
+                          </Tooltip>
+                        </th>
+                        <th className="text-right px-2 py-1.5 font-medium whitespace-nowrap">
+                          <Tooltip content={findGlossary('mdd')?.description ?? 'MDD'}>
+                            <span>MDD</span>
+                          </Tooltip>
+                        </th>
                         <th className="text-right px-2 py-1.5 font-medium whitespace-nowrap">Time (KST)</th>
                       </tr>
                     </thead>

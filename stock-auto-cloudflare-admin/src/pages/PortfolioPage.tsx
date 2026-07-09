@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react'
 import { api } from '../utils/api'
+import { Tooltip } from '../components/common/Tooltip'
+import { findGlossary } from '../utils/glossary'
 import {
   Wallet, TrendingUp, TrendingDown, PieChart, BarChart3,
   Plus, Trash2, CheckCircle, XCircle, RefreshCw, LineChart,
@@ -123,13 +125,6 @@ export default function PortfolioPage() {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <h2 className="text-lg font-bold text-text">Strategy Portfolio</h2>
-        <button onClick={load} className="p-2 text-text-muted hover:text-text transition-colors">
-          <RefreshCw size={14} />
-        </button>
-      </div>
-
       {strategies?.items?.length === 0 ? (
         <div className="bg-surface-card rounded-2xl border border-surface-border p-6 text-center text-xs text-text-muted">
           No strategies in portfolio. Go to Strategy tab to add strategies.
@@ -160,9 +155,15 @@ export default function PortfolioPage() {
                     </div>
                   </div>
                   <div className="flex gap-3 mt-1 text-[10px] text-text-muted">
-                    <span>Fitness: <span className="text-amber-400">{s.fitness.toFixed(2)}</span></span>
-                    <span>Return: <span className={s.return_pct >= 0 ? 'text-green-400' : 'text-red-400'}>{s.return_pct.toFixed(1)}%</span></span>
-                    <span>Win: <span className="text-blue-400">{s.win_rate.toFixed(1)}%</span></span>
+                    <Tooltip content={findGlossary('fitness')?.description ?? 'Fitness'}>
+                      <span>Fitness: <span className="text-amber-400">{s.fitness.toFixed(2)}</span></span>
+                    </Tooltip>
+                    <Tooltip content={findGlossary('return')?.description ?? 'Return'}>
+                      <span>Return: <span className={s.return_pct >= 0 ? 'text-green-400' : 'text-red-400'}>{s.return_pct.toFixed(1)}%</span></span>
+                    </Tooltip>
+                    <Tooltip content={findGlossary('winRate')?.description ?? 'Win'}>
+                      <span>Win: <span className="text-blue-400">{s.win_rate.toFixed(1)}%</span></span>
+                    </Tooltip>
                   </div>
                   {s.status === 'candidate' && (
                     <div className="flex gap-2 mt-2">
@@ -230,31 +231,43 @@ export default function PortfolioPage() {
                 <div className="border-t border-surface-border pt-3 space-y-3">
                   <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-xs">
                     <div className="bg-surface rounded-xl p-2">
-                      <span className="text-text-muted">Return</span>
+                      <Tooltip content={findGlossary('return')?.description ?? 'Return'}>
+                        <span className="text-text-muted">Return</span>
+                      </Tooltip>
                       <p className={`text-sm font-bold ${btResult.return_pct >= 0 ? 'text-green-400' : 'text-red-400'}`}>
                         {btResult.return_pct >= 0 ? '+' : ''}{btResult.return_pct.toFixed(2)}%
                       </p>
                     </div>
                     <div className="bg-surface rounded-xl p-2">
-                      <span className="text-text-muted">Win Rate</span>
+                      <Tooltip content={findGlossary('winRate')?.description ?? 'Win Rate'}>
+                        <span className="text-text-muted">Win Rate</span>
+                      </Tooltip>
                       <p className="text-sm font-bold text-blue-400">{btResult.win_rate.toFixed(1)}%</p>
                     </div>
                     <div className="bg-surface rounded-xl p-2">
-                      <span className="text-text-muted">MDD</span>
+                      <Tooltip content={findGlossary('mdd')?.description ?? 'MDD'}>
+                        <span className="text-text-muted">MDD</span>
+                      </Tooltip>
                       <p className="text-sm font-bold text-red-400">{btResult.mdd.toFixed(2)}%</p>
                     </div>
                     <div className="bg-surface rounded-xl p-2">
-                      <span className="text-text-muted">Sharpe</span>
+                      <Tooltip content={findGlossary('sharpe')?.description ?? 'Sharpe'}>
+                        <span className="text-text-muted">Sharpe</span>
+                      </Tooltip>
                       <p className="text-sm font-bold text-amber-400">{btResult.sharpe_ratio.toFixed(2)}</p>
                     </div>
                     <div className="bg-surface rounded-xl p-2">
-                      <span className="text-text-muted">CAGR</span>
+                      <Tooltip content={findGlossary('cagr')?.description ?? 'CAGR'}>
+                        <span className="text-text-muted">CAGR</span>
+                      </Tooltip>
                       <p className={`text-sm font-bold ${btResult.cagr >= 0 ? 'text-green-400' : 'text-red-400'}`}>
                         {btResult.cagr >= 0 ? '+' : ''}{btResult.cagr.toFixed(2)}%
                       </p>
                     </div>
                     <div className="bg-surface rounded-xl p-2">
-                      <span className="text-text-muted">Trades</span>
+                      <Tooltip content={findGlossary('totalTrades')?.description ?? 'Trades'}>
+                        <span className="text-text-muted">Trades</span>
+                      </Tooltip>
                       <p className="text-sm font-bold text-text">{btResult.trade_count}</p>
                     </div>
                   </div>
@@ -297,9 +310,15 @@ export default function PortfolioPage() {
                       <span className="text-text-muted">{h.period_start} ~ {h.period_end}</span>
                     </div>
                     <div className="flex gap-3">
-                      <span className={h.return_pct >= 0 ? 'text-green-400' : 'text-red-400'}>{h.return_pct >= 0 ? '+' : ''}{h.return_pct.toFixed(1)}%</span>
-                      <span className="text-text-muted">MDD {h.mdd.toFixed(1)}%</span>
-                      <span className="text-amber-400">Sharpe {h.sharpe_ratio.toFixed(2)}</span>
+                      <Tooltip content={findGlossary('return')?.description ?? 'Return'}>
+                        <span className={h.return_pct >= 0 ? 'text-green-400' : 'text-red-400'}>{h.return_pct >= 0 ? '+' : ''}{h.return_pct.toFixed(1)}%</span>
+                      </Tooltip>
+                      <Tooltip content={findGlossary('mdd')?.description ?? 'MDD'}>
+                        <span className="text-text-muted">MDD {h.mdd.toFixed(1)}%</span>
+                      </Tooltip>
+                      <Tooltip content={findGlossary('sharpe')?.description ?? 'Sharpe'}>
+                        <span className="text-amber-400">Sharpe {h.sharpe_ratio.toFixed(2)}</span>
+                      </Tooltip>
                     </div>
                   </div>
                 ))}

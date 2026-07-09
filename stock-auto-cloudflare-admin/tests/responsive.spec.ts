@@ -153,7 +153,7 @@ for (const res of RESOLUTIONS) {
       await page.goto('/');
       await page.waitForLoadState('networkidle');
       await page.waitForTimeout(1000);
-      const nav = page.locator('nav button').filter({ hasText: 'Portfolio' });
+      const nav = page.locator('nav button').filter({ hasText: '포트폴리오' });
       if (await nav.count() > 0) await nav.click();
       await page.waitForTimeout(500);
       const overflow = await checkOverflow(page);
@@ -165,7 +165,7 @@ for (const res of RESOLUTIONS) {
       await page.goto('/');
       await page.waitForLoadState('networkidle');
       await page.waitForTimeout(1000);
-      const nav = page.locator('nav button').filter({ hasText: 'Evolution' });
+      const nav = page.locator('nav button').filter({ hasText: '진화' });
       if (await nav.count() > 0) await nav.click();
       await page.waitForTimeout(500);
       const overflow = await checkOverflow(page);
@@ -177,7 +177,7 @@ for (const res of RESOLUTIONS) {
       await page.goto('/');
       await page.waitForLoadState('networkidle');
       await page.waitForTimeout(1000);
-      const nav = page.locator('nav button').filter({ hasText: 'Strategy' });
+      const nav = page.locator('nav button').filter({ hasText: '전략' });
       if (await nav.count() > 0) await nav.click();
       await page.waitForTimeout(500);
       const overflow = await checkOverflow(page);
@@ -189,7 +189,7 @@ for (const res of RESOLUTIONS) {
       await page.goto('/');
       await page.waitForLoadState('networkidle');
       await page.waitForTimeout(1000);
-      const nav = page.locator('nav button').filter({ hasText: 'Paper Trade' });
+      const nav = page.locator('nav button').filter({ hasText: '모의투자' });
       if (await nav.count() > 0) await nav.click();
       await page.waitForTimeout(500);
       const overflow = await checkOverflow(page);
@@ -201,7 +201,7 @@ for (const res of RESOLUTIONS) {
       await page.goto('/');
       await page.waitForLoadState('networkidle');
       await page.waitForTimeout(1000);
-      const nav = page.locator('nav button').filter({ hasText: 'Validation' });
+      const nav = page.locator('nav button').filter({ hasText: '검증' });
       if (await nav.count() > 0) await nav.click();
       await page.waitForTimeout(500);
       const overflow = await checkOverflow(page);
@@ -213,7 +213,7 @@ for (const res of RESOLUTIONS) {
       await page.goto('/');
       await page.waitForLoadState('networkidle');
       await page.waitForTimeout(1000);
-      const nav = page.locator('nav button').filter({ hasText: 'Risk' });
+      const nav = page.locator('nav button').filter({ hasText: '리스크' });
       if (await nav.count() > 0) await nav.click();
       await page.waitForTimeout(500);
       const overflow = await checkOverflow(page);
@@ -225,7 +225,7 @@ for (const res of RESOLUTIONS) {
       await page.goto('/');
       await page.waitForLoadState('networkidle');
       await page.waitForTimeout(1000);
-      const nav = page.locator('nav button').filter({ hasText: 'Logs' });
+      const nav = page.locator('nav button').filter({ hasText: '로그' });
       if (await nav.count() > 0) await nav.click();
       await page.waitForTimeout(500);
       const overflow = await checkOverflow(page);
@@ -237,7 +237,7 @@ for (const res of RESOLUTIONS) {
       await page.goto('/');
       await page.waitForLoadState('networkidle');
       await page.waitForTimeout(1000);
-      const nav = page.locator('nav button').filter({ hasText: 'Settings' });
+      const nav = page.locator('nav button').filter({ hasText: '설정' });
       if (await nav.count() > 0) await nav.click();
       await page.waitForTimeout(500);
       const overflow = await checkOverflow(page);
@@ -249,7 +249,7 @@ for (const res of RESOLUTIONS) {
       await page.goto('/');
       await page.waitForLoadState('networkidle');
       await page.waitForTimeout(1000);
-      const nav = page.locator('nav button').filter({ hasText: 'Scheduler' });
+      const nav = page.locator('nav button').filter({ hasText: '스케줄러' });
       if (await nav.count() > 0) await nav.click();
       await page.waitForTimeout(500);
       const overflow = await checkOverflow(page);

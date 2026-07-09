@@ -216,6 +216,10 @@ async def recalculate_all():
                         _recalc_status["processed"] += 1
                         continue
 
+                    await execute_non_query(
+                        "DELETE FROM strategy_performance WHERE strategy_id = :1", [sid]
+                    )
+
                     perf = await evaluator.evaluate_strategy_for_recalc(sid, gen, univ)
                     if perf and perf.get("total_trades", 0) > 0:
                         ret = perf.get("total_return", 0)

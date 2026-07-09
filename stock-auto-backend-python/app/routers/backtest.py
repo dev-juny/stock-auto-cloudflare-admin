@@ -10,6 +10,7 @@ import sys
 import uuid
 from datetime import date, datetime, timedelta
 from pathlib import Path
+import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "stock-auto-backtest" / "src"))
 
@@ -1355,25 +1356,278 @@ async def refresh_breadth() -> dict:
 # ── Trade logs ──
 @router.get("/trades")
 async def list_trade_logs(limit: int = 50, ticker: str = "") -> list[dict]:
-    if ticker:
-        sql = "SELECT id, ticker, action, price, quantity, reason, TO_CHAR(traded_at, 'YYYY-MM-DD HH24:MI:SS') FROM trade_logs WHERE ticker = :1 ORDER BY traded_at DESC FETCH FIRST :2 ROWS ONLY"
-        params = [ticker, limit]
-    else:
-        sql = "SELECT id, ticker, action, price, quantity, reason, TO_CHAR(traded_at, 'YYYY-MM-DD HH24:MI:SS') FROM trade_logs ORDER BY traded_at DESC FETCH FIRST :1 ROWS ONLY"
-        params = [limit]
-    rows = await execute_query(sql, params)
-    result = []
-    for r in rows:
-        result.append({
-            "id": r[0],
-            "ticker": r[1],
-            "action": r[2],
-            "price": float(r[3]) if r[3] else None,
-            "quantity": int(r[4]) if r[4] else None,
-            "reason": r[5],
-            "traded_at": r[6] or "",
-        })
-    return result
+    try:
+        if ticker:
+            sql = """SELECT id, ticker, action, price, quantity, reason,
+                            TO_CHAR(traded_at, 'YYYY-MM-DD HH24:MI:SS')
+                     FROM trade_logs
+                     WHERE ticker = :1
+                     ORDER BY traded_at DESC"""
+            params = [ticker]
+        else:
+            sql = """SELECT id, ticker, action, price, quantity, reason,
+                            TO_CHAR(traded_at, 'YYYY-MM-DD HH24:MI:SS')
+                     FROM trade_logs
+                     ORDER BY traded_at DESC"""
+            params = []
+        rows = await execute_query(sql, params)
+        result = []
+        for r in rows[:limit]:
+            result.append({
+                "id": r[0],
+                "ticker": r[1],
+                "action": r[2],
+                "price": float(r[3]) if r[3] else None,
+                "quantity": int(r[4]) if r[4] else None,
+                "reason": r[5],
+                "traded_at": r[6] or "",
+            })
+        return result
+    except Exception as e:
+        _logger.warning("[TRADES] Query failed: %s", e)
+        return []
+
+
+# ── Strategy Trade Detail ──
+@router.get("/strategy/{strategy_id}/trades")
+async def get_strategy_trades(strategy_id: int):
+    try:
+        rows = await execute_query(
+            """SELECT params_json, generation FROM strategy_pool WHERE id = :1""",
+            [strategy_id]
+        )
+        if not rows:
+            return {"strategy_id": strategy_id, "trades": [], "metrics": {}, "error": "Strategy not found"}
+        raw_params = rows[0][0]
+        generation = rows[0][1]
+        try:
+            p_dict = json.loads(raw_params) if isinstance(raw_params, str) else json.loads(raw_params.read())
+        except Exception:
+            p_dict = {}
+
+        universe = await execute_query(
+            """SELECT ticker, name, market FROM evolution_evaluation_universe
+               WHERE generation = :1 ORDER BY sample_order ASC, ticker ASC""",
+            [generation]
+        )
+        if not universe:
+            return {"strategy_id": strategy_id, "trades": [], "metrics": {}, "error": "No universe stocks found"}
+
+        # Apply the same 180-day window as the evaluator
+        end_str = date.today().isoformat()
+        start_str = (date.today() - timedelta(days=180)).isoformat()
+
+        # Build BMC from strategy params (snake_case matches position_manager.BacktestConfig)
+        bmc = BMC(
+            fixed_take_profit_pct=float(p_dict.get("fixed_take_profit_pct", p_dict.get("fixedTakeProfitPct", 0.07))),
+            break_even_activation_pct=float(p_dict.get("break_even_activation_pct", p_dict.get("breakEvenActivationPct", 0.07))),
+            trailing_activation_pct=float(p_dict.get("trailing_activation_pct", p_dict.get("trailingActivationPct", 0.03))),
+            trailing_stop_pct=float(p_dict.get("trailing_stop_pct", p_dict.get("trailingStopPct", 0.03))),
+            stall_exit_days=int(p_dict.get("stall_exit_days", p_dict.get("stallExitDays", 2))),
+            stop_loss_pct=float(p_dict.get("stop_loss_pct", p_dict.get("stopLossPct", 0.0))),
+            min_volume=int(p_dict.get("min_volume", p_dict.get("minVolume", 500000))),
+            max_volatility=float(p_dict.get("max_volatility", p_dict.get("maxVolatility", 0.12))),
+            ranking_candidate_limit=int(p_dict.get("ranking_candidate_limit", p_dict.get("rankingCandidateLimit", 30))),
+            max_concurrent_positions=int(p_dict.get("max_concurrent_positions", p_dict.get("maxConcurrentPositions", 10))),
+            entry_type=p_dict.get("entry_type", p_dict.get("entryType", "momentum")),
+            entry_trigger=p_dict.get("entry_trigger", p_dict.get("entryTrigger", "next_close")),
+            entry_conditions=p_dict.get("entry_conditions", p_dict.get("entryConditions", None)),
+            commission=float(p_dict.get("commission", 0.0002)),
+            tax=float(p_dict.get("tax", 0.0015)),
+            slippage=float(p_dict.get("slippage", 0.001)),
+        )
+
+        pool = get_pool()
+        all_trades = []
+        per_ticker_metrics = []
+        initial_notional = 1000000.0
+
+        for u in universe:
+            ticker = u[0]
+            name = u[1] or ticker
+            market = u[2] or ""
+
+            candles = None
+            if pool:
+                try:
+                    db_rows = await execute_query(
+                        """SELECT trade_date, open_price, high_price, low_price, close_price, volume
+                           FROM stock_daily_prices WHERE ticker = :1
+                           AND trade_date >= TO_DATE(:2, 'YYYY-MM-DD')
+                           AND trade_date <= TO_DATE(:3, 'YYYY-MM-DD')
+                           ORDER BY trade_date""",
+                        [ticker, start_str, end_str]
+                    )
+                    if db_rows:
+                        candles = [
+                            {"time": str(r[0].date() if hasattr(r[0], "date") else r[0]),
+                             "open": float(r[1]), "high": float(r[2]),
+                             "low": float(r[3]), "close": float(r[4]),
+                             "volume": int(r[5]) if r[5] is not None else 0}
+                            for r in db_rows
+                        ]
+                except Exception:
+                    pass
+
+            if not candles:
+                candles = await fetch_stock_data(ticker)
+                if candles:
+                    candles = [c for c in candles if start_str <= str(c.get("time", "")) <= end_str]
+
+            if not candles or len(candles) < 30:
+                continue
+
+            results = _run_on_data_sync(ticker, candles, bmc)
+            if not results:
+                continue
+
+            ticker_total_pnl = 0.0
+            ticker_wins = 0
+            ticker_trades = 0
+            ticker_peak_equity = 0.0
+            ticker_max_dd = 0.0
+            ticker_gross_profit = 0.0
+            ticker_gross_loss = 0.0
+
+            for t in results:
+                t["name"] = name
+                t["market"] = market
+                pnl_frac = t.get("pnl", 0)
+                pnl_amt = pnl_frac * initial_notional
+                ticker_total_pnl += pnl_amt
+                ticker_trades += 1
+                if pnl_frac > 0:
+                    ticker_wins += 1
+                    ticker_gross_profit += pnl_amt
+                else:
+                    ticker_gross_loss += abs(pnl_amt)
+                current_equity = initial_notional + ticker_total_pnl
+                if current_equity > ticker_peak_equity:
+                    ticker_peak_equity = current_equity
+                dd_pct = (ticker_peak_equity - current_equity) / ticker_peak_equity * 100 if ticker_peak_equity > 0 else 0
+                ticker_max_dd = max(ticker_max_dd, dd_pct)
+
+                all_trades.append({
+                    "strategy_id": strategy_id,
+                    "trade_date": t.get("exit_date", t.get("entry_date", "")),
+                    "symbol": ticker,
+                    "name": name,
+                    "market": market,
+                    "entry_price": t.get("entry_price", 0),
+                    "exit_price": t.get("exit_price"),
+                    "quantity": 1,
+                    "pnl": round(pnl_amt, 2),
+                    "pnl_pct": round(pnl_frac * 100, 4),
+                    "win_loss": "win" if pnl_frac > 0 else "loss",
+                    "holding_period": t.get("holding_days", 0),
+                    "entry_date": t.get("entry_date", ""),
+                    "exit_date": t.get("exit_date"),
+                    "exit_reason": t.get("exit_reason"),
+                })
+
+            if ticker_trades > 0:
+                ticker_return = ticker_total_pnl / initial_notional * 100
+                ticker_win_rate = ticker_wins / ticker_trades * 100
+                ticker_pf = ticker_gross_profit / ticker_gross_loss if ticker_gross_loss > 0.001 else (999.0 if ticker_gross_profit > 0 else 0.0)
+                per_ticker_metrics.append({
+                    "total_return": ticker_return,
+                    "win_rate": ticker_win_rate,
+                    "max_drawdown": ticker_max_dd,
+                    "profit_factor": ticker_pf,
+                    "total_trades": ticker_trades,
+                })
+
+        if per_ticker_metrics:
+            avg_return = float(np.mean([m["total_return"] for m in per_ticker_metrics]))
+            avg_wr = float(np.mean([m["win_rate"] for m in per_ticker_metrics]))
+            avg_mdd = float(np.mean([m["max_drawdown"] for m in per_ticker_metrics]))
+            avg_pf = float(np.mean([m["profit_factor"] for m in per_ticker_metrics]))
+            total_trades = int(sum(m["total_trades"] for m in per_ticker_metrics))
+        else:
+            avg_return = avg_wr = avg_mdd = avg_pf = 0.0
+            total_trades = 0
+
+        calc_metrics = {
+            "total_return": round(avg_return, 4),
+            "win_rate": round(avg_wr, 2),
+            "max_drawdown": round(avg_mdd, 4),
+            "profit_factor": round(avg_pf, 4),
+            "total_trades": total_trades,
+            "stocks_with_trades": len(per_ticker_metrics),
+        }
+
+        return {
+            "strategy_id": strategy_id,
+            "trades": all_trades,
+            "metrics": calc_metrics,
+        }
+    except Exception as e:
+        import traceback
+        _logger.error("[STRATEGY_TRADES] Error for strategy %d: %s\n%s", strategy_id, e, traceback.format_exc())
+        return {"strategy_id": strategy_id, "trades": [], "metrics": {}, "error": str(e)}
+
+
+# ── Strategy Metric Verification ──
+@router.get("/strategy/{strategy_id}/verify")
+async def verify_strategy_metrics(strategy_id: int):
+    try:
+        rows = await execute_query(
+            """SELECT sp.id, sp.name, sp.generation, sp.version,
+                      pf.total_return, pf.win_rate, pf.max_drawdown, pf.profit_factor,
+                      pf.total_trades, pf.fitness_score
+               FROM strategy_pool sp
+               LEFT JOIN (
+                   SELECT strategy_id, total_return, win_rate, max_drawdown, profit_factor, total_trades, fitness_score,
+                          ROW_NUMBER() OVER (PARTITION BY strategy_id ORDER BY generation DESC) as rn
+                   FROM strategy_performance
+               ) pf ON pf.strategy_id = sp.id AND pf.rn = 1
+               WHERE sp.id = :1""",
+            [strategy_id]
+        )
+        if not rows:
+            return {"strategy_id": strategy_id, "error": "Strategy not found"}
+
+        r = rows[0]
+        db_metrics = {
+            "total_return": float(r[4] or 0),
+            "win_rate": float(r[5] or 0),
+            "max_drawdown": float(abs(r[6] or 0)),
+            "profit_factor": float(r[7] or 0),
+            "total_trades": int(r[8] or 0),
+            "fitness": float(r[9] or 0),
+        }
+
+        trades_resp = await get_strategy_trades(strategy_id)
+        calc_metrics = trades_resp.get("metrics", {})
+        trades = trades_resp.get("trades", [])
+
+        comparison = {}
+        for key in ["total_return", "win_rate", "max_drawdown", "profit_factor", "total_trades"]:
+            db_val = db_metrics.get(key, 0)
+            calc_val = calc_metrics.get(key, 0)
+            diff = float(abs(calc_val - db_val)) if db_val else float(abs(calc_val))
+            match = bool(diff < 0.01) if key != "total_trades" else bool(db_val == calc_val)
+            comparison[key] = {
+                "db_value": db_val,
+                "calculated": calc_val,
+                "difference": round(diff, 4),
+                "match": match,
+            }
+
+        return {
+            "strategy_id": strategy_id,
+            "name": r[1] or "",
+            "generation": r[2] or 1,
+            "version": r[3] or 1,
+            "db_metrics": db_metrics,
+            "calc_metrics": calc_metrics,
+            "comparison": comparison,
+            "trade_count": len(trades),
+        }
+    except Exception as e:
+        import traceback
+        _logger.error("[VERIFY] Error for strategy %d: %s\n%s", strategy_id, e, traceback.format_exc())
+        return {"strategy_id": strategy_id, "error": str(e)}
 
 
 # ── Scheduler config ──

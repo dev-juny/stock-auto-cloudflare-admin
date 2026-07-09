@@ -3,8 +3,10 @@ import { api } from '../utils/api'
 import { Card } from '../components/common/Card'
 import { CardSkeleton } from '../components/common/Skeleton'
 import { Badge } from '../components/common/Badge'
+import { Tooltip } from '../components/common/Tooltip'
 import { createChart, ColorType, LineSeries, HistogramSeries } from 'lightweight-charts'
 import type { ValidationStatus, ValidationDashboard } from '../utils/api'
+import { findGlossary } from '../utils/glossary'
 import {
   Activity, TrendingUp, TrendingDown, Target, BarChart3,
   RefreshCw, Calendar, Play, Square, XCircle,
@@ -117,14 +119,11 @@ export default function ValidationDashboardPage() {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <h2 className="text-lg font-bold text-text">Validation Dashboard</h2>
-        <div className="flex items-center gap-2">
-          <Badge variant={isActive ? 'success' : 'muted'}>{isActive ? 'ACTIVE' : 'INACTIVE'}</Badge>
-          <button onClick={loadAll} className="p-2 text-text-muted hover:text-text">
-            <RefreshCw size={14} />
-          </button>
-        </div>
+      <div className="flex items-center gap-2 justify-end">
+        <Badge variant={isActive ? 'success' : 'muted'}>{isActive ? 'ACTIVE' : 'INACTIVE'}</Badge>
+        <button onClick={loadAll} className="p-2 text-text-muted hover:text-text">
+          <RefreshCw size={14} />
+        </button>
       </div>
 
       {/* Status */}
@@ -144,17 +143,23 @@ export default function ValidationDashboardPage() {
         )}
         <div className="grid grid-cols-3 gap-3 text-xs">
           <div className="bg-surface rounded-xl p-3 text-center">
-            <div className="text-text-muted text-[10px]">Total Return</div>
+            <Tooltip content={findGlossary('return')?.description ?? 'Total Return'}>
+              <div className="text-text-muted text-[10px]">Total Return</div>
+            </Tooltip>
             <div className={`font-bold text-sm ${(metrics?.cumulative_return ?? 0) >= 0 ? 'text-green-400' : 'text-red-400'}`}>
               {(metrics?.cumulative_return ?? 0) >= 0 ? '+' : ''}{(metrics?.cumulative_return ?? 0).toFixed(2)}%
             </div>
           </div>
           <div className="bg-surface rounded-xl p-3 text-center">
-            <div className="text-text-muted text-[10px]">MDD</div>
+            <Tooltip content={findGlossary('mdd')?.description ?? 'MDD'}>
+              <div className="text-text-muted text-[10px]">MDD</div>
+            </Tooltip>
             <div className="font-bold text-sm text-red-400">{(metrics?.max_drawdown ?? 0).toFixed(1)}%</div>
           </div>
           <div className="bg-surface rounded-xl p-3 text-center">
-            <div className="text-text-muted text-[10px]">Win Rate</div>
+            <Tooltip content={findGlossary('winRate')?.description ?? 'Win Rate'}>
+              <div className="text-text-muted text-[10px]">Win Rate</div>
+            </Tooltip>
             <div className="font-bold text-sm text-blue-400">{(metrics?.win_rate ?? 0).toFixed(1)}%</div>
           </div>
         </div>
@@ -167,7 +172,9 @@ export default function ValidationDashboardPage() {
             <Card>
               <div className="flex items-center gap-1 text-text-muted mb-1">
                 <BarChart3 size={12} />
-                <span className="text-[10px]">Sharpe</span>
+                <Tooltip content={findGlossary('sharpe')?.description ?? 'Sharpe'}>
+                  <span className="text-[10px]">Sharpe</span>
+                </Tooltip>
               </div>
               <div className={`text-lg font-bold font-mono tabular-nums ${(metrics.sharpe ?? 0) >= 1 ? 'text-green-400' : (metrics.sharpe ?? 0) >= 0 ? 'text-amber-400' : 'text-red-400'}`}>
                 {(metrics.sharpe ?? 0).toFixed(2)}
@@ -194,7 +201,9 @@ export default function ValidationDashboardPage() {
             <Card>
               <div className="flex items-center gap-1 text-text-muted mb-1">
                 <Target size={12} />
-                <span className="text-[10px]">Profit Factor</span>
+                <Tooltip content={findGlossary('profitFactor')?.description ?? 'Profit Factor'}>
+                  <span className="text-[10px]">Profit Factor</span>
+                </Tooltip>
               </div>
               <div className={`text-lg font-bold font-mono tabular-nums ${metrics.profit_factor >= 1.5 ? 'text-green-400' : 'text-text'}`}>
                 {(metrics.profit_factor ?? 0) === Infinity ? '∞' : (metrics.profit_factor ?? 0).toFixed(2)}

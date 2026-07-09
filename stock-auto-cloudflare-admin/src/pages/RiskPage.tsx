@@ -2,9 +2,11 @@ import { useState, useEffect } from 'react'
 import { api } from '../utils/api'
 import { Card } from '../components/common/Card'
 import { CardSkeleton } from '../components/common/Skeleton'
+import { Tooltip } from '../components/common/Tooltip'
 import { useAction } from '../hooks/useAction'
 import { ConfirmDialog } from '../components/common/ConfirmDialog'
 import type { RiskCheckResult } from '../utils/api'
+import { findGlossary } from '../utils/glossary'
 import {
   Shield, ShieldAlert, AlertTriangle, CheckCircle, XCircle,
   TrendingUp, TrendingDown, DollarSign, Percent, Ban, Gauge,
@@ -88,13 +90,10 @@ export default function RiskPage() {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <h2 className="text-lg font-bold text-text">Risk Management</h2>
-        <div className="flex items-center gap-2">
-          <button onClick={loadAll} className="p-2 text-text-muted hover:text-text">
-            <RefreshCw size={14} />
-          </button>
-        </div>
+      <div className="flex justify-end">
+        <button onClick={loadAll} className="p-2 text-text-muted hover:text-text">
+          <RefreshCw size={14} />
+        </button>
       </div>
 
       {/* Risk Status */}
@@ -116,7 +115,9 @@ export default function RiskPage() {
           <div className="bg-surface rounded-xl p-3">
             <div className="flex items-center gap-1 text-text-muted mb-1">
               <Percent size={12} />
-              <span className="text-[10px]">Current Exposure</span>
+              <Tooltip content={findGlossary('exposure')?.description ?? 'Current Exposure'}>
+                <span className="text-[10px]">Current Exposure</span>
+              </Tooltip>
             </div>
             <div className={`text-sm font-bold font-mono tabular-nums ${(riskData?.total_exposure ?? 0) > 80 ? 'text-red-400' : 'text-text'}`}>
               {riskData?.total_exposure?.toFixed(1) ?? '-'}%
@@ -134,7 +135,9 @@ export default function RiskPage() {
           <div className="bg-surface rounded-xl p-3">
             <div className="flex items-center gap-1 text-text-muted mb-1">
               <DollarSign size={12} />
-              <span className="text-[10px]">Cash Ratio</span>
+              <Tooltip content={findGlossary('cashRatio')?.description ?? 'Cash Ratio'}>
+                <span className="text-[10px]">Cash Ratio</span>
+              </Tooltip>
             </div>
             <div className="text-sm font-bold font-mono tabular-nums text-blue-400">
               {riskData?.cash_ratio?.toFixed(1) ?? '-'}%
@@ -143,7 +146,9 @@ export default function RiskPage() {
           <div className="bg-surface rounded-xl p-3">
             <div className="flex items-center gap-1 text-text-muted mb-1">
               <TrendingDown size={12} />
-              <span className="text-[10px]">MDD</span>
+              <Tooltip content={findGlossary('mdd')?.description ?? 'MDD'}>
+                <span className="text-[10px]">MDD</span>
+              </Tooltip>
             </div>
             <div className={`text-sm font-bold font-mono tabular-nums ${(riskData?.portfolio_mdd ?? 0) > 20 ? 'text-red-400' : (riskData?.portfolio_mdd ?? 0) > 10 ? 'text-amber-400' : 'text-green-400'}`}>
               {riskData?.portfolio_mdd?.toFixed(1) ?? '-'}%
@@ -152,7 +157,9 @@ export default function RiskPage() {
           <div className="bg-surface rounded-xl p-3">
             <div className="flex items-center gap-1 text-text-muted mb-1">
               <Ban size={12} />
-              <span className="text-[10px]">Position Count</span>
+              <Tooltip content={findGlossary('maxPositions')?.description ?? 'Position Count'}>
+                <span className="text-[10px]">Position Count</span>
+              </Tooltip>
             </div>
             <div className="text-sm font-bold font-mono tabular-nums text-text">
               {riskData?.open_positions ?? 0}
@@ -178,19 +185,25 @@ export default function RiskPage() {
             </div>
           </div>
           <div className="bg-surface rounded-xl p-3">
-            <div className="text-text-muted text-[10px]">Daily Loss Limit</div>
+            <Tooltip content={findGlossary('stopLoss')?.description ?? 'Daily Loss Limit'}>
+              <div className="text-text-muted text-[10px]">Daily Loss Limit</div>
+            </Tooltip>
             <div className={`font-bold font-mono tabular-nums ${(riskData?.today_pnl_pct ?? 0) <= -(settings?.daily_loss_limit ?? 5) ? 'text-red-400' : 'text-green-400'}`}>
               {settings?.daily_loss_limit?.toFixed(1) ?? '-'}%
             </div>
           </div>
           <div className="bg-surface rounded-xl p-3">
-            <div className="text-text-muted text-[10px]">Profit Lock</div>
+            <Tooltip content={findGlossary('takeProfit')?.description ?? 'Profit Lock'}>
+              <div className="text-text-muted text-[10px]">Profit Lock</div>
+            </Tooltip>
             <div className={`font-bold font-mono tabular-nums ${(riskData?.today_pnl_pct ?? 0) >= (settings?.daily_profit_lock ?? 10) ? 'text-green-400' : 'text-text'}`}>
               {settings?.daily_profit_lock?.toFixed(1) ?? '-'}%
             </div>
           </div>
           <div className="bg-surface rounded-xl p-3">
-            <div className="text-text-muted text-[10px]">Max Drawdown Limit</div>
+            <Tooltip content={findGlossary('mdd')?.description ?? 'Max Drawdown Limit'}>
+              <div className="text-text-muted text-[10px]">Max Drawdown Limit</div>
+            </Tooltip>
             <div className="font-bold font-mono tabular-nums text-text">
               {riskData?.portfolio_mdd?.toFixed(1) ?? '-'}%
             </div>

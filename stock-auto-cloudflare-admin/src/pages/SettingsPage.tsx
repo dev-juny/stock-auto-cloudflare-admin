@@ -146,20 +146,17 @@ export default function SettingsPage() {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <h2 className="text-lg font-bold text-text">Settings</h2>
-        <div className="flex items-center gap-2">
-          {saved && <span className="text-[11px] text-green-400 font-medium">Saved!</span>}
-          <button onClick={() => { load(); setSaved(false) }}
-            className="p-2 text-text-muted hover:text-text transition-colors">
-            <RotateCw size={14} />
-          </button>
-          <button onClick={save} disabled={saving}
-            className="flex items-center gap-1 px-3 py-1.5 bg-primary text-white text-xs font-medium rounded-lg disabled:opacity-50">
-            <Save size={12} />
-            Save
-          </button>
-        </div>
+      <div className="flex items-center gap-2 justify-end">
+        {saved && <span className="text-[11px] text-green-400 font-medium">Saved!</span>}
+        <button onClick={() => { load(); setSaved(false) }}
+          className="p-2 text-text-muted hover:text-text transition-colors">
+          <RotateCw size={14} />
+        </button>
+        <button onClick={save} disabled={saving}
+          className="flex items-center gap-1 px-3 py-1.5 bg-primary text-white text-xs font-medium rounded-lg disabled:opacity-50">
+          <Save size={12} />
+          Save
+        </button>
       </div>
 
       <div className="bg-surface-card rounded-2xl border border-surface-border overflow-hidden">

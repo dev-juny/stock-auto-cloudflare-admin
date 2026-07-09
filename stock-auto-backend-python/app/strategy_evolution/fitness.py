@@ -1,3 +1,5 @@
+from datetime import datetime, timezone
+
 from .models import EvolutionConfig, EvolutionStrategy, FitnessScore
 
 
@@ -26,7 +28,7 @@ class FitnessCalculator:
             profit_factor=strategy.profit_factor,
             total_trades=strategy.total_trades,
             fitness=strategy.fitness_score,
-            calculated_at="",
+            calculated_at=str(datetime.now(timezone.utc)),
         )
 
     def calculate_batch(self, strategies: list[EvolutionStrategy]) -> list[FitnessScore]:

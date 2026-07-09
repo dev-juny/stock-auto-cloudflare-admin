@@ -30,7 +30,7 @@ export function ToastProvider({ children }) {
         warning: 'bg-amber-500/15 text-amber-400 border-amber-500/30',
         info: 'bg-blue-500/15 text-blue-400 border-blue-500/30',
     };
-    return (_jsxs(ToastContext.Provider, { value: { toast }, children: [children, _jsx("div", { className: "fixed top-4 right-4 z-[100] flex flex-col gap-2 max-w-sm", children: toasts.map(t => {
+    return (_jsxs(ToastContext.Provider, { value: { toast }, children: [children, _jsx("div", { className: "fixed top-4 right-4 z-[100] flex flex-col gap-2 max-w-sm w-[calc(100vw-2rem)] sm:w-auto", children: toasts.map(t => {
                     const Icon = icons[t.type];
                     return (_jsxs("div", { className: `flex items-start gap-2 px-3 py-2.5 rounded-xl border text-xs font-medium animate-slide-up ${colors[t.type]}`, children: [_jsx(Icon, { size: 14, className: "shrink-0 mt-0.5" }), _jsx("span", { className: "flex-1", children: t.message }), _jsx("button", { onClick: () => remove(t.id), className: "shrink-0 opacity-60 hover:opacity-100", children: _jsx(X, { size: 12 }) })] }, t.id));
                 }) })] }));

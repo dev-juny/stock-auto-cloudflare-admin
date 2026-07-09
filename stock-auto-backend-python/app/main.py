@@ -117,7 +117,9 @@ async def logging_middleware(request: Request, call_next):
     method = request.method
     path = request.url.path
     if status_code >= 400:
-        _logger.warning("[%s] %s %s -> %d (%.2fs)", method, path, request.state.get("user", {}).get("username", "?"), status_code, elapsed)
+        user_info = getattr(request.state, "user", {})
+        username = user_info.get("username", "?") if isinstance(user_info, dict) else "?"
+        _logger.warning("[%s] %s %s -> %d (%.2fs)", method, path, username, status_code, elapsed)
     elif elapsed > 0.5:
         _logger.info("[SLOW] %s %s -> %d (%.2fs)", method, path, status_code, elapsed)
     return response

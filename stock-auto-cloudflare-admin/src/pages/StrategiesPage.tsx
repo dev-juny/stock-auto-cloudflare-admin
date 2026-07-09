@@ -2,6 +2,8 @@ import { useEffect, useState, useCallback } from 'react'
 import { api } from '../utils/api'
 import { useAction } from '../hooks/useAction'
 import { ConfirmDialog } from '../components/common/ConfirmDialog'
+import { Tooltip } from '../components/common/Tooltip'
+import { findGlossary } from '../utils/glossary'
 import type {
   RiskCheckResult, PromotionEntry, ValidationStatus, LiveTradingReadiness,
 } from '../utils/api'
@@ -135,16 +137,12 @@ export default function StrategiesPage() {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <h2 className="text-lg font-bold text-text">Top Strategies</h2>
-        <button onClick={load} className="p-2 text-text-muted hover:text-text transition-colors">
-          <RefreshCw size={14} />
-        </button>
-      </div>
-
       <div className="flex items-start gap-2 text-[10px] text-text-muted bg-surface-card rounded-xl px-3 py-2 border border-surface-border">
         <Target size={12} className="mt-0.5 shrink-0" />
         <span className="leading-relaxed">Filters: Fitness &ge; 50 &middot; Win Rate &ge; 45% &middot; Trades &ge; 30 &middot; MDD &le; 20% &middot; Return &ge; 20%</span>
+        <button onClick={load} className="p-1 ml-auto text-text-muted hover:text-text transition-colors shrink-0">
+          <RefreshCw size={12} />
+        </button>
       </div>
 
       <div className="bg-surface-card rounded-2xl border border-surface-border overflow-hidden">
@@ -164,16 +162,29 @@ export default function StrategiesPage() {
                         Gen <ArrowUpDown size={8} />
                       </button>
                     </th>
-                    {SORT_OPTIONS.filter(o => o.value !== 'generation').map(o => (
+                    {SORT_OPTIONS.filter(o => o.value !== 'generation').map(o => {
+                      const labelKey = o.value === 'return' ? 'return' : o.value === 'win_rate' ? 'winRate' : o.value
+                      return (
                       <th key={o.value} className="text-right px-1 sm:px-2 py-2 font-medium">
                         <button onClick={() => { setSortBy(o.value); setSortDir(d => d === 'asc' ? 'desc' : 'asc') }}
                           className={`flex items-center gap-0.5 sm:gap-1 ml-auto hover:text-text transition-colors ${sortBy === o.value ? 'text-primary' : ''}`}>
-                          {o.label} <ArrowUpDown size={8} />
+                          <Tooltip content={findGlossary(labelKey)?.description ?? o.label}>
+                            <span>{o.label}</span>
+                          </Tooltip>
+                          <ArrowUpDown size={8} />
                         </button>
                       </th>
-                    ))}
-                    <th className="text-right px-1 sm:px-2 py-2 font-medium">MDD</th>
-                    <th className="text-right px-1 sm:px-2 py-2 font-medium whitespace-nowrap">Trades</th>
+                    )})}
+                    <th className="text-right px-1 sm:px-2 py-2 font-medium">
+                      <Tooltip content={findGlossary('mdd')?.description ?? 'MDD'}>
+                        <span>MDD</span>
+                      </Tooltip>
+                    </th>
+                    <th className="text-right px-1 sm:px-2 py-2 font-medium whitespace-nowrap">
+                      <Tooltip content={findGlossary('totalTrades')?.description ?? 'Trades'}>
+                        <span>Trades</span>
+                      </Tooltip>
+                    </th>
                     <th className="text-right px-1 sm:px-2 py-2 font-medium whitespace-nowrap">Action</th>
                   </tr>
                 </thead>
@@ -228,11 +239,11 @@ export default function StrategiesPage() {
 
             <div className="flex border-b border-surface-border overflow-x-auto scrollbar-none">
               {[
-                { id: 'metrics' as const, label: 'Metrics', icon: BarChart3 },
-                { id: 'risk' as const, label: 'Risk', icon: Shield },
-                { id: 'promotion' as const, label: 'Promotion', icon: TrendingUp },
-                { id: 'validation' as const, label: 'Validation', icon: Activity },
-                { id: 'readiness' as const, label: 'Readiness', icon: CheckCircle },
+                { id: 'metrics' as const, label: '메트릭', icon: BarChart3 },
+                { id: 'risk' as const, label: '리스크', icon: Shield },
+                { id: 'promotion' as const, label: '승격', icon: TrendingUp },
+                { id: 'validation' as const, label: '검증', icon: Activity },
+                { id: 'readiness' as const, label: '준비도', icon: CheckCircle },
               ].map(tab => (
                 <button key={tab.id} onClick={() => setDetailTab(tab.id)}
                   className={`flex items-center gap-1 px-2 sm:gap-1.5 sm:px-3 py-2 text-[11px] font-medium whitespace-nowrap transition-colors
@@ -336,28 +347,28 @@ function MetricsSection({ strategy, onAddToPortfolio }: { strategy: StrategyDeta
   return (
     <>
             <div className="grid grid-cols-2 gap-2 text-xs break-words">
-              <div><span className="text-text-muted">Generation</span><p className="text-text font-medium">{strategy.generation}</p></div>
+              <div><Tooltip content={findGlossary('generation')?.description ?? 'Generation'}><span className="text-text-muted">Generation</span></Tooltip><p className="text-text font-medium">{strategy.generation}</p></div>
         <div><span className="text-text-muted">Version</span><p className="text-text font-medium">{strategy.version}</p></div>
-        <div><span className="text-text-muted">Fitness</span><p className="text-amber-400 font-bold">{strategy.fitness.toFixed(2)}</p></div>
-        <div><span className="text-text-muted">Return</span><p className={`font-bold ${strategy.return_pct >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+        <div><Tooltip content={findGlossary('fitness')?.description ?? 'Fitness'}><span className="text-text-muted">Fitness</span></Tooltip><p className="text-amber-400 font-bold">{strategy.fitness.toFixed(2)}</p></div>
+        <div><Tooltip content={findGlossary('return')?.description ?? 'Return'}><span className="text-text-muted">Return</span></Tooltip><p className={`font-bold ${strategy.return_pct >= 0 ? 'text-green-400' : 'text-red-400'}`}>
           {strategy.return_pct >= 0 ? '+' : ''}{strategy.return_pct.toFixed(2)}%</p></div>
-        <div><span className="text-text-muted">Win Rate</span><p className="text-blue-400 font-medium">{strategy.win_rate.toFixed(1)}%</p></div>
+        <div><Tooltip content={findGlossary('winRate')?.description ?? 'Win Rate'}><span className="text-text-muted">Win Rate</span></Tooltip><p className="text-blue-400 font-medium">{strategy.win_rate.toFixed(1)}%</p></div>
         <div>
-          <span className="text-text-muted">MDD</span>
+          <Tooltip content={findGlossary('mdd')?.description ?? 'MDD'}><span className="text-text-muted">MDD</span></Tooltip>
           <p className={`font-medium ${getMddColor(strategy.mdd)}`}>{strategy.mdd.toFixed(2)}%</p>
         </div>
-        <div><span className="text-text-muted">Total Trades</span><p className="text-text font-medium">{strategy.total_trades}</p></div>
-        <div><span className="text-text-muted">Profit Factor</span><p className="text-text font-medium">{strategy.profit_factor.toFixed(2)}</p></div>
+        <div><Tooltip content={findGlossary('totalTrades')?.description ?? 'Total Trades'}><span className="text-text-muted">Total Trades</span></Tooltip><p className="text-text font-medium">{strategy.total_trades}</p></div>
+        <div><Tooltip content={findGlossary('profitFactor')?.description ?? 'Profit Factor'}><span className="text-text-muted">Profit Factor</span></Tooltip><p className="text-text font-medium">{strategy.profit_factor.toFixed(2)}</p></div>
       </div>
 
       <div className="border-t border-surface-border pt-3">
         <h4 className="text-xs font-semibold text-text-muted uppercase tracking-wider mb-2">Parameters</h4>
         <div className="grid grid-cols-2 gap-2 text-xs">
-          <div><span className="text-text-muted">Entry Type</span><p className="text-text font-mono">{strategy.entry_type || '-'}</p></div>
-          <div><span className="text-text-muted">Stop Loss</span><p className="text-text">{strategy.stop_loss ? `${(strategy.stop_loss * 100).toFixed(1)}%` : '-'}</p></div>
-          <div><span className="text-text-muted">Take Profit</span><p className="text-text">{strategy.take_profit ? `${(strategy.take_profit * 100).toFixed(1)}%` : '-'}</p></div>
-          <div><span className="text-text-muted">Trailing Stop</span><p className="text-text">{strategy.trailing_stop ? `${(strategy.trailing_stop * 100).toFixed(1)}%` : '-'}</p></div>
-          <div><span className="text-text-muted">Max Concurrent</span><p className="text-text">{strategy.max_concurrent_positions || '-'}</p></div>
+          <div><Tooltip content={findGlossary('entryType')?.description ?? 'Entry Type'}><span className="text-text-muted">Entry Type</span></Tooltip><p className="text-text font-mono">{strategy.entry_type || '-'}</p></div>
+          <div><Tooltip content={findGlossary('stopLoss')?.description ?? 'Stop Loss'}><span className="text-text-muted">Stop Loss</span></Tooltip><p className="text-text">{strategy.stop_loss ? `${(strategy.stop_loss * 100).toFixed(1)}%` : '-'}</p></div>
+          <div><Tooltip content={findGlossary('takeProfit')?.description ?? 'Take Profit'}><span className="text-text-muted">Take Profit</span></Tooltip><p className="text-text">{strategy.take_profit ? `${(strategy.take_profit * 100).toFixed(1)}%` : '-'}</p></div>
+          <div><Tooltip content={findGlossary('trailingStop')?.description ?? 'Trailing Stop'}><span className="text-text-muted">Trailing Stop</span></Tooltip><p className="text-text">{strategy.trailing_stop ? `${(strategy.trailing_stop * 100).toFixed(1)}%` : '-'}</p></div>
+          <div><Tooltip content={findGlossary('maxPositions')?.description ?? 'Max Concurrent'}><span className="text-text-muted">Max Concurrent</span></Tooltip><p className="text-text">{strategy.max_concurrent_positions || '-'}</p></div>
           <div><span className="text-text-muted">Ranking Limit</span><p className="text-text">{strategy.ranking_candidate_limit || '-'}</p></div>
         </div>
       </div>
@@ -401,7 +412,9 @@ function RiskSection({ data, loading, onRefresh }: { data: RiskCheckResult | nul
 
       <div className="grid grid-cols-2 gap-2 text-xs">
         <div className="bg-surface rounded-xl p-3">
-          <div className="text-text-muted text-[10px]">Portfolio MDD</div>
+          <Tooltip content={findGlossary('mdd')?.description ?? 'Portfolio MDD'}>
+            <div className="text-text-muted text-[10px]">Portfolio MDD</div>
+          </Tooltip>
           <div className="font-medium text-text">{data.portfolio_mdd.toFixed(1)}%</div>
         </div>
         <div className="bg-surface rounded-xl p-3">
@@ -417,7 +430,9 @@ function RiskSection({ data, loading, onRefresh }: { data: RiskCheckResult | nul
           </div>
         </div>
         <div className="bg-surface rounded-xl p-3">
-          <div className="text-text-muted text-[10px]">Open Positions</div>
+          <Tooltip content={findGlossary('maxPositions')?.description ?? 'Open Positions'}>
+            <div className="text-text-muted text-[10px]">Open Positions</div>
+          </Tooltip>
           <div className="font-medium text-text">{data.open_positions}</div>
         </div>
       </div>
@@ -425,7 +440,9 @@ function RiskSection({ data, loading, onRefresh }: { data: RiskCheckResult | nul
       <div className="grid grid-cols-2 gap-2 text-xs">
         {data.cash_ratio > 0 && (
           <div className="bg-surface rounded-xl p-3">
-            <div className="text-text-muted text-[10px]">Cash Ratio</div>
+            <Tooltip content={findGlossary('cashRatio')?.description ?? 'Cash Ratio'}>
+              <div className="text-text-muted text-[10px]">Cash Ratio</div>
+            </Tooltip>
             <div className="font-medium text-blue-400">{data.cash_ratio.toFixed(1)}%</div>
           </div>
         )}
@@ -538,17 +555,23 @@ function ValidationSection({ data: data_, loading, onRefresh }: { data: Validati
       {data.is_active && data.today && (
         <div className="grid grid-cols-3 gap-2 text-xs">
           <div className="bg-surface rounded-xl p-3 text-center">
-            <div className="text-text-muted text-[10px]">Total Return</div>
+            <Tooltip content={findGlossary('return')?.description ?? 'Total Return'}>
+              <div className="text-text-muted text-[10px]">Total Return</div>
+            </Tooltip>
             <div className={`font-bold ${data.today.cumulative_return >= 0 ? 'text-green-400' : 'text-red-400'}`}>
               {data.today.cumulative_return >= 0 ? '+' : ''}{data.today.cumulative_return.toFixed(2)}%
             </div>
           </div>
           <div className="bg-surface rounded-xl p-3 text-center">
-            <div className="text-text-muted text-[10px]">MDD</div>
+            <Tooltip content={findGlossary('mdd')?.description ?? 'MDD'}>
+              <div className="text-text-muted text-[10px]">MDD</div>
+            </Tooltip>
             <div className="font-bold text-red-400">{data.today.mdd.toFixed(1)}%</div>
           </div>
           <div className="bg-surface rounded-xl p-3 text-center">
-            <div className="text-text-muted text-[10px]">Win Rate</div>
+            <Tooltip content={findGlossary('winRate')?.description ?? 'Win Rate'}>
+              <div className="text-text-muted text-[10px]">Win Rate</div>
+            </Tooltip>
             <div className="font-bold text-blue-400">{data.today.win_rate.toFixed(1)}%</div>
           </div>
         </div>

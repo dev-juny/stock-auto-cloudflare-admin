@@ -55,9 +55,11 @@ class PositionState:
             return ('SELL', 'stop_loss')
 
         # 2. Fixed take profit
+        take_profit_pct = cfg.fixed_take_profit_pct or 0
+        if take_profit_pct > 0 and profit_pct >= take_profit_pct:
             return ('SELL', 'take_profit')
 
-        # 2. Trailing stop
+        # 3. Trailing stop
         if peak_profit_pct >= cfg.trailing_activation_pct:
             drop_ratio = 1 - cfg.trailing_stop_pct
             if current_price < self.highest_price_since_entry * drop_ratio:

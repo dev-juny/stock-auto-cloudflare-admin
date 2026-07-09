@@ -1,8 +1,10 @@
 import { TrendingUp, TrendingDown, BarChart3, Target, DollarSign } from 'lucide-react'
 import { Card } from '../common/Card'
 import { CardSkeleton } from '../common/Skeleton'
+import { Tooltip } from '../common/Tooltip'
 import { formatKRW, formatPct } from '../../utils/format'
 import { DashboardResponse } from '../../utils/api'
+import { findGlossary } from '../../utils/glossary'
 
 interface KPICardsProps {
   dash: DashboardResponse | null
@@ -38,6 +40,15 @@ export function KPICards({ dash, loading }: KPICardsProps) {
   const sharpe = port?.sharpe ?? 0
   const cagr = port?.cagr ?? 0
 
+  const labelKeys: Record<string, string> = {
+    'Total Return': 'return',
+    'CAGR': 'cagr',
+    'MDD': 'mdd',
+    'Sharpe': 'sharpe',
+    'Win Rate': 'winRate',
+    'Profit Factor': 'profitFactor',
+  }
+
   const kpis: KpiItem[] = [
     { label: 'Total Return', value: formatPct(totalReturn), sub: `PF Grade: ${port?.pf_grade ?? paper?.pf_grade ?? 'N/A'}`, icon: TrendingUp, positive: totalReturn >= 0 },
     { label: 'CAGR', value: cagr > 0 ? `${cagr.toFixed(1)}%` : '-', sub: '연환산 수익률', icon: TrendingUp, positive: cagr > 0 },
@@ -52,10 +63,17 @@ export function KPICards({ dash, loading }: KPICardsProps) {
       {kpis.map((kpi) => {
         const Icon = kpi.icon
         const isPositive = kpi.positive
+        const g = findGlossary(labelKeys[kpi.label])
         return (
           <Card key={kpi.label} className="!p-3">
             <div className="flex items-center justify-between mb-1.5">
-              <span className="text-[10px] font-medium text-text-muted tracking-wide">{kpi.label}</span>
+              {g ? (
+                <Tooltip content={g.description} size={12}>
+                  <span className="text-[10px] font-medium text-text-muted tracking-wide">{kpi.label}</span>
+                </Tooltip>
+              ) : (
+                <span className="text-[10px] font-medium text-text-muted tracking-wide">{kpi.label}</span>
+              )}
               <Icon size={13} className={isPositive ? 'text-success' : kpi.positive === false ? 'text-danger' : 'text-primary'} />
             </div>
             <div className={`kpi-value !text-lg leading-tight ${

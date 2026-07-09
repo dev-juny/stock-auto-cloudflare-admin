@@ -3,6 +3,8 @@ import { api } from '../utils/api'
 import { useToast } from '../components/common/Toast'
 import { useAction } from '../hooks/useAction'
 import { ConfirmDialog } from '../components/common/ConfirmDialog'
+import { Tooltip } from '../components/common/Tooltip'
+import { findGlossary } from '../utils/glossary'
 import {
   Wallet, TrendingUp, TrendingDown, RefreshCw, Play,
   CheckCircle, XCircle, Activity, LogOut, Pause, PlayCircle,
@@ -193,14 +195,11 @@ export default function PaperTradingPage() {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <h2 className="text-lg font-bold text-text">Paper Trading</h2>
-        <div className="flex items-center gap-2">
-          <span className={`text-[10px] px-2 py-0.5 rounded-full ${paused ? 'bg-amber-500/10 text-amber-400' : 'bg-green-500/10 text-green-400'}`}>
-            {paused ? 'PAUSED' : 'ACTIVE'}
-          </span>
-          <span className="text-[10px] px-2 py-0.5 rounded-full bg-blue-500/10 text-blue-400">Mock Broker</span>
-        </div>
+      <div className="flex items-center gap-2 justify-end">
+        <span className={`text-[10px] px-2 py-0.5 rounded-full ${paused ? 'bg-amber-500/10 text-amber-400' : 'bg-green-500/10 text-green-400'}`}>
+          {paused ? 'PAUSED' : 'ACTIVE'}
+        </span>
+        <span className="text-[10px] px-2 py-0.5 rounded-full bg-blue-500/10 text-blue-400">Mock Broker</span>
       </div>
 
       {status && (
@@ -222,7 +221,9 @@ export default function PaperTradingPage() {
           <div className="bg-surface-card rounded-2xl p-4 border border-surface-border">
             <div className="flex items-center gap-1.5 text-text-muted mb-1">
               <Activity size={14} />
-              <span className="text-[10px] font-medium">Positions</span>
+              <Tooltip content={findGlossary('maxPositions')?.description ?? 'Positions'}>
+                <span className="text-[10px] font-medium">Positions</span>
+              </Tooltip>
             </div>
             <div className="text-lg font-bold text-amber-400">{status.positions_count ?? 0}</div>
           </div>
