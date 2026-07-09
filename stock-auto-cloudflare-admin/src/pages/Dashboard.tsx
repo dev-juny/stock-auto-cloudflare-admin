@@ -196,7 +196,7 @@ export function Dashboard() {
       )}
 
       {/* Risk / Validation / Readiness */}
-      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
         <RiskSummaryCard dash={dash} loading={loading} />
         <ValidationProgressCard dash={dash} loading={loading} />
         <ReadinessCard dash={dash} loading={loading} />

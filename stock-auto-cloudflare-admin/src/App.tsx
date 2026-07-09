@@ -38,7 +38,7 @@ export default function App() {
     <ToastProvider>
       <div className="min-h-screen bg-surface">
         <DashboardHeader />
-        <main className="max-w-5xl mx-auto px-4 pt-4 pb-24">
+        <main className="max-w-5xl mx-auto px-4 pt-4 pb-28 safe-area-bottom">
           {activeTab === 'dashboard' && <Dashboard />}
           {activeTab === 'portfolio' && <PortfolioPage />}
           {activeTab === 'evolution' && <EvolutionPage />}

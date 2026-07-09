@@ -239,17 +239,17 @@ export default function SchedulerPage() {
                 <span className="text-[10px] font-semibold text-text-muted uppercase tracking-wider">Recent Generations</span>
               </div>
               <div className="overflow-x-auto">
-                <table className="w-full text-[11px]">
-                  <thead>
-                    <tr className="text-text-muted border-t border-surface-border">
-                      <th className="text-left px-3 py-1.5 font-medium">Gen</th>
-                      <th className="text-right px-2 py-1.5 font-medium">Fitness</th>
-                      <th className="text-right px-2 py-1.5 font-medium">Return</th>
-                      <th className="text-right px-2 py-1.5 font-medium">Win Rate</th>
-                      <th className="text-right px-2 py-1.5 font-medium">MDD</th>
-                      <th className="text-right px-2 py-1.5 font-medium">Time (KST)</th>
-                    </tr>
-                  </thead>
+                  <table className="w-full text-[11px]">
+                    <thead>
+                      <tr className="text-text-muted border-t border-surface-border">
+                        <th className="text-left px-3 py-1.5 font-medium whitespace-nowrap">Gen</th>
+                        <th className="text-right px-2 py-1.5 font-medium whitespace-nowrap">Fitness</th>
+                        <th className="text-right px-2 py-1.5 font-medium whitespace-nowrap">Return</th>
+                        <th className="text-right px-2 py-1.5 font-medium whitespace-nowrap">Win Rate</th>
+                        <th className="text-right px-2 py-1.5 font-medium whitespace-nowrap">MDD</th>
+                        <th className="text-right px-2 py-1.5 font-medium whitespace-nowrap">Time (KST)</th>
+                      </tr>
+                    </thead>
                   <tbody className="divide-y divide-surface-border">
                     {evoInfo.recent_generations.slice(0, 10).map(g => (
                       <tr key={g.generation} className="hover:bg-surface/50 transition-colors">
@@ -275,7 +275,7 @@ export default function SchedulerPage() {
 
       {selectedJob && (
         <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40">
-          <div className="bg-surface-card w-full sm:max-w-lg rounded-t-2xl sm:rounded-2xl max-h-[70vh] overflow-y-auto">
+          <div className="bg-surface-card w-full sm:max-w-lg rounded-t-2xl sm:rounded-2xl max-h-[85vh] overflow-y-auto">
             <div className="sticky top-0 bg-surface-card border-b border-surface-border p-3 flex items-center justify-between">
               <h3 className="text-sm font-semibold text-text">{selectedJob.job_name}</h3>
               <button onClick={() => setSelectedJob(null)} className="text-text-muted hover:text-text text-lg leading-none">&times;</button>

@@ -234,7 +234,7 @@ export default function ValidationDashboardPage() {
           {dashboard.monthly_heatmap && Object.keys(dashboard.monthly_heatmap).length > 0 && (
             <Card>
               <h3 className="text-[10px] font-medium text-text-muted uppercase tracking-wider mb-2">Monthly Returns</h3>
-              <div className="grid grid-cols-6 gap-1.5">
+              <div className="grid grid-cols-3 sm:grid-cols-6 gap-1.5">
                 {Object.entries(dashboard.monthly_heatmap).flatMap(([year, months]) =>
                   Object.entries(months).map(([month, ret]) => (
                     <div key={`${year}-${month}`} className={`px-2 py-1.5 rounded-lg text-center text-xs font-mono tabular-nums ${

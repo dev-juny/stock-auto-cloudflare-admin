@@ -96,8 +96,8 @@ export function EvolutionPage() {
         </div>
       </div>
 
-      <div className="flex items-center justify-between border-b border-surface-border pb-2">
-        <div className="flex gap-2">
+      <div className="flex items-start sm:items-center justify-between border-b border-surface-border pb-2 gap-2">
+        <div className="flex gap-2 flex-wrap">
           {(['strategies', 'timeline'] as const).map((t) => (
             <button
               key={t}

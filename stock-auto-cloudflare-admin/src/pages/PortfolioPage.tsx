@@ -262,7 +262,7 @@ export default function PortfolioPage() {
                   {btResult?.daily_values?.length > 1 && (
                     <div className="bg-surface rounded-xl p-3">
                       <h4 className="text-[10px] font-semibold text-text-muted uppercase tracking-wider mb-2">Equity Curve</h4>
-                      <div className="flex items-end gap-0.5 h-24">
+                      <div className="flex items-end gap-px h-24">
                         {btResult.daily_values.filter((_, i) => i % Math.max(1, Math.floor(btResult.daily_values.length / 60)) === 0).map((d, i) => {
                           const h = ((d.value - minVal) / (maxVal - minVal || 1)) * 100
                           return (

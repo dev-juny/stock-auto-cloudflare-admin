@@ -142,9 +142,9 @@ export default function StrategiesPage() {
         </button>
       </div>
 
-      <div className="flex items-center gap-2 text-[10px] text-text-muted bg-surface-card rounded-xl px-3 py-2 border border-surface-border">
-        <Target size={12} />
-        <span>Filters: Fitness &ge; 50 &middot; Win Rate &ge; 45% &middot; Trades &ge; 30 &middot; MDD &le; 20% &middot; Return &ge; 20%</span>
+      <div className="flex items-start gap-2 text-[10px] text-text-muted bg-surface-card rounded-xl px-3 py-2 border border-surface-border">
+        <Target size={12} className="mt-0.5 shrink-0" />
+        <span className="leading-relaxed">Filters: Fitness &ge; 50 &middot; Win Rate &ge; 45% &middot; Trades &ge; 30 &middot; MDD &le; 20% &middot; Return &ge; 20%</span>
       </div>
 
       <div className="bg-surface-card rounded-2xl border border-surface-border overflow-hidden">
@@ -335,8 +335,8 @@ function AddToPortfolioButton({ strategy, onDone }: { strategy: { strategy_id: n
 function MetricsSection({ strategy, onAddToPortfolio }: { strategy: StrategyDetail; onAddToPortfolio: () => void }) {
   return (
     <>
-      <div className="grid grid-cols-2 gap-2 text-xs">
-        <div><span className="text-text-muted">Generation</span><p className="text-text font-medium">{strategy.generation}</p></div>
+            <div className="grid grid-cols-2 gap-2 text-xs break-words">
+              <div><span className="text-text-muted">Generation</span><p className="text-text font-medium">{strategy.generation}</p></div>
         <div><span className="text-text-muted">Version</span><p className="text-text font-medium">{strategy.version}</p></div>
         <div><span className="text-text-muted">Fitness</span><p className="text-amber-400 font-bold">{strategy.fitness.toFixed(2)}</p></div>
         <div><span className="text-text-muted">Return</span><p className={`font-bold ${strategy.return_pct >= 0 ? 'text-green-400' : 'text-red-400'}`}>

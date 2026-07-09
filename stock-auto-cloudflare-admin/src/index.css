@@ -21,6 +21,10 @@
     @apply min-h-screen overflow-x-hidden;
   }
 
+  .safe-area-bottom {
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+
   input, select, textarea, button {
     @apply outline-none;
   }
