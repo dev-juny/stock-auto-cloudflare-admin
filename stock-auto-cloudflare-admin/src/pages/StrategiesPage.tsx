@@ -154,42 +154,42 @@ export default function StrategiesPage() {
           <div className="p-6 text-center text-xs text-text-muted">No strategies meet the criteria</div>
         ) : (
           <>
-            <div className="overflow-x-auto">
-              <table className="w-full text-xs">
+            <div className="-mx-4 sm:mx-0 overflow-x-auto">
+              <table className="w-full text-[10px] sm:text-xs">
                 <thead>
                   <tr className="text-text-muted border-b border-surface-border">
-                    <th className="text-left px-3 py-2 font-medium">
+                    <th className="text-left px-1.5 sm:px-3 py-2 font-medium">
                       <button onClick={() => { setSortBy('generation'); setSortDir(d => d === 'asc' ? 'desc' : 'asc') }}
-                        className={`flex items-center gap-1 hover:text-text transition-colors ${sortBy === 'generation' ? 'text-primary' : ''}`}>
-                        Gen <ArrowUpDown size={10} />
+                        className={`flex items-center gap-0.5 sm:gap-1 hover:text-text transition-colors ${sortBy === 'generation' ? 'text-primary' : ''}`}>
+                        Gen <ArrowUpDown size={8} />
                       </button>
                     </th>
                     {SORT_OPTIONS.filter(o => o.value !== 'generation').map(o => (
-                      <th key={o.value} className="text-right px-2 py-2 font-medium">
+                      <th key={o.value} className="text-right px-1 sm:px-2 py-2 font-medium">
                         <button onClick={() => { setSortBy(o.value); setSortDir(d => d === 'asc' ? 'desc' : 'asc') }}
-                          className={`flex items-center gap-1 ml-auto hover:text-text transition-colors ${sortBy === o.value ? 'text-primary' : ''}`}>
-                          {o.label} <ArrowUpDown size={10} />
+                          className={`flex items-center gap-0.5 sm:gap-1 ml-auto hover:text-text transition-colors ${sortBy === o.value ? 'text-primary' : ''}`}>
+                          {o.label} <ArrowUpDown size={8} />
                         </button>
                       </th>
                     ))}
-                    <th className="text-right px-2 py-2 font-medium">MDD</th>
-                    <th className="text-right px-2 py-2 font-medium">Trades</th>
-                    <th className="text-right px-2 py-2 font-medium">Action</th>
+                    <th className="text-right px-1 sm:px-2 py-2 font-medium">MDD</th>
+                    <th className="text-right px-1 sm:px-2 py-2 font-medium whitespace-nowrap">Trades</th>
+                    <th className="text-right px-1 sm:px-2 py-2 font-medium whitespace-nowrap">Action</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-surface-border">
                   {data.items.map(s => (
                     <tr key={s.strategy_id} className="hover:bg-surface/50 transition-colors cursor-pointer"
                       onClick={() => loadDetail(s.strategy_id)}>
-                      <td className="px-3 py-2 text-text font-medium">{s.generation}</td>
-                      <td className="px-2 py-2 text-right text-amber-400">{s.fitness.toFixed(2)}</td>
-                      <td className={`px-2 py-2 text-right ${s.return_pct >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                      <td className="px-1.5 sm:px-3 py-2 text-text font-medium">{s.generation}</td>
+                      <td className="px-1 sm:px-2 py-2 text-right text-amber-400 whitespace-nowrap">{s.fitness.toFixed(2)}</td>
+                      <td className={`px-1 sm:px-2 py-2 text-right whitespace-nowrap ${s.return_pct >= 0 ? 'text-green-400' : 'text-red-400'}`}>
                         {s.return_pct >= 0 ? '+' : ''}{s.return_pct.toFixed(2)}%
                       </td>
-                      <td className="px-2 py-2 text-right text-blue-400">{s.win_rate.toFixed(1)}%</td>
-                      <td className={`px-2 py-2 text-right font-medium ${getMddColor(s.mdd)}`}>{s.mdd.toFixed(2)}%</td>
-                      <td className="px-2 py-2 text-right text-text-muted">{s.total_trades}</td>
-                      <td className="px-2 py-2 text-right">
+                      <td className="px-1 sm:px-2 py-2 text-right text-blue-400 whitespace-nowrap">{s.win_rate.toFixed(1)}%</td>
+                      <td className={`px-1 sm:px-2 py-2 text-right font-medium whitespace-nowrap ${getMddColor(s.mdd)}`}>{s.mdd.toFixed(2)}%</td>
+                      <td className="px-1 sm:px-2 py-2 text-right text-text-muted">{s.total_trades}</td>
+                      <td className="px-1 sm:px-2 py-2 text-right">
                         <AddToPortfolioButton strategy={s} onDone={load} />
                       </td>
                     </tr>
@@ -226,7 +226,7 @@ export default function StrategiesPage() {
               <button onClick={() => setSelectedStrategy(null)} className="text-text-muted hover:text-text text-lg leading-none">&times;</button>
             </div>
 
-            <div className="flex border-b border-surface-border overflow-x-auto">
+            <div className="flex border-b border-surface-border overflow-x-auto scrollbar-none">
               {[
                 { id: 'metrics' as const, label: 'Metrics', icon: BarChart3 },
                 { id: 'risk' as const, label: 'Risk', icon: Shield },
@@ -235,7 +235,7 @@ export default function StrategiesPage() {
                 { id: 'readiness' as const, label: 'Readiness', icon: CheckCircle },
               ].map(tab => (
                 <button key={tab.id} onClick={() => setDetailTab(tab.id)}
-                  className={`flex items-center gap-1.5 px-3 py-2 text-[11px] font-medium whitespace-nowrap transition-colors
+                  className={`flex items-center gap-1 px-2 sm:gap-1.5 sm:px-3 py-2 text-[11px] font-medium whitespace-nowrap transition-colors
                     ${detailTab === tab.id ? 'text-primary border-b-2 border-primary' : 'text-text-muted hover:text-text'}`}>
                   <tab.icon size={12} />
                   {tab.label}
@@ -243,7 +243,7 @@ export default function StrategiesPage() {
               ))}
             </div>
 
-            <div className="p-4 space-y-4">
+            <div className="p-3 sm:p-4 space-y-3 sm:space-y-4">
               {detailTab === 'metrics' && (
                 <MetricsSection strategy={selectedStrategy} onAddToPortfolio={() => {
                   addToPortfolio(selectedStrategy)

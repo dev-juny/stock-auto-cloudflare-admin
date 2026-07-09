@@ -119,7 +119,7 @@ export default function SchedulerPage() {
   }
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4 pb-12">
       <div className="flex items-center justify-between">
         <h2 className="text-lg font-bold text-text">Scheduler</h2>
         <button onClick={load} className="p-2 text-text-muted hover:text-text transition-colors">
