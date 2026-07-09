@@ -5,7 +5,7 @@ export function LiveStatus({ status, generationCount, strategyCount }) {
         return (_jsx("div", { className: "bg-surface-card rounded-2xl p-4 border border-surface-border", children: _jsx("p", { className: "text-xs text-text-muted", children: "Loading evolution status..." }) }));
     }
     const items = [
-        { label: 'Generation', value: `#${status.current_generation}` },
+        { label: 'Generation', value: `#${status.current_generation ?? '?'}` },
         { label: 'Strategies', value: strategyCount.toString() },
         { label: 'Total Gens', value: generationCount.toString() },
         { label: 'Progress', value: status.is_running ? `${status.progress_pct}%` : '-' },

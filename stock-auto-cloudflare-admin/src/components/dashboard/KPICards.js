@@ -1,61 +1,29 @@
 import { jsx as _jsx, jsxs as _jsxs } from "react/jsx-runtime";
-import { useState, useEffect } from 'react';
 import { TrendingUp, TrendingDown, BarChart3, Target, DollarSign } from 'lucide-react';
 import { Card } from '../common/Card';
 import { CardSkeleton } from '../common/Skeleton';
-import { formatKRW, formatPct } from '../../utils/format';
-import { api } from '../../utils/api';
-export function KPICards({ portfolio, loading }) {
-    const [performanceData, setPerformanceData] = useState({ mdd: null, cagr: null });
-    useEffect(() => {
-        api.get('/api/portfolio/performance')
-            .then(d => {
-            if (!d?.snapshots?.length)
-                return;
-            const snapshots = d.snapshots;
-            const firstPnl = snapshots[snapshots.length - 1]?.pnl_pct ?? 0;
-            const lastPnl = snapshots[0]?.pnl_pct ?? 0;
-            let maxPnl = -Infinity;
-            let maxMdd = 0;
-            for (const s of snapshots) {
-                if (s.pnl_pct > maxPnl)
-                    maxPnl = s.pnl_pct;
-                const dd = maxPnl - s.pnl_pct;
-                if (dd > maxMdd)
-                    maxMdd = dd;
-            }
-            const days = snapshots.length;
-            const years = days / 365;
-            const cagrVal = years > 0 && firstPnl !== 0
-                ? ((1 + lastPnl / 100) ** (1 / years) - 1) * 100
-                : null;
-            setPerformanceData({ mdd: -maxMdd, cagr: cagrVal });
-        })
-            .catch(() => { });
-    }, []);
-    const totalPnl = portfolio?.totalPnl ?? 0;
-    const totalPnlPct = portfolio?.totalPnlPct ?? 0;
-    const holdings = portfolio?.holdings ?? [];
-    const holdingCount = holdings.length;
-    const winCount = holdings.filter(h => Number(h.evlu_pfls_amt) > 0).length;
-    const winRate = holdingCount > 0 ? (winCount / holdingCount) * 100 : 0;
-    const posSum = holdings.reduce((s, h) => { const v = Number(h.evlu_pfls_amt); return v > 0 ? s + v : s; }, 0);
-    const negSum = holdings.reduce((s, h) => { const v = Number(h.evlu_pfls_amt); return v < 0 ? s + Math.abs(v) : s; }, 0);
-    const profitFactor = negSum > 0 ? posSum / negSum : posSum > 0 ? Infinity : 0;
-    const avgPnl = holdingCount > 0 ? totalPnl / holdingCount : 0;
-    const mdd = performanceData.mdd;
-    const cagr = performanceData.cagr;
-    const kpis = [
-        { label: '총 수익률', value: formatPct(totalPnlPct), sub: formatKRW(totalPnl), icon: TrendingUp, positive: totalPnl >= 0 },
-        { label: 'CAGR', value: cagr !== null ? `${cagr.toFixed(1)}%` : '-', sub: '연환산 수익률', icon: TrendingUp, positive: cagr !== null && cagr > 0 },
-        { label: 'MDD', value: mdd !== null ? `${mdd.toFixed(1)}%` : '-', sub: '최대 손실 구간', icon: TrendingDown, positive: mdd !== null ? false : undefined },
-        { label: '승률', value: `${winRate.toFixed(1)}%`, sub: `${holdingCount}건`, icon: Target, positive: winRate >= 50 },
-        { label: 'Profit Factor', value: profitFactor === Infinity ? '∞' : profitFactor.toFixed(2), sub: '수익/손실 비율', icon: BarChart3, positive: profitFactor > 1.5, neutral: profitFactor === Infinity || profitFactor <= 1.5 },
-        { label: 'Expectancy', value: `${avgPnl >= 0 ? '+' : ''}${formatKRW(avgPnl)}`, sub: '평균 기대 수익', icon: DollarSign, positive: avgPnl >= 0 },
-    ];
+import { formatPct } from '../../utils/format';
+export function KPICards({ dash, loading }) {
     if (loading) {
         return (_jsx("div", { className: "grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-2.5", children: [1, 2, 3, 4, 5, 6].map((i) => _jsx(CardSkeleton, {}, i)) }));
     }
+    const port = dash?.portfolio;
+    const paper = dash?.paper_trading;
+    const risk = dash?.risk;
+    const totalReturn = port?.total_return ?? paper?.total_return ?? 0;
+    const mdd = port?.mdd ?? risk?.mdd ?? 0;
+    const winRate = paper?.win_rate ?? 0;
+    const profitFactor = paper?.profit_factor ?? 0;
+    const sharpe = port?.sharpe ?? 0;
+    const cagr = port?.cagr ?? 0;
+    const kpis = [
+        { label: 'Total Return', value: formatPct(totalReturn), sub: `PF Grade: ${port?.pf_grade ?? paper?.pf_grade ?? 'N/A'}`, icon: TrendingUp, positive: totalReturn >= 0 },
+        { label: 'CAGR', value: cagr > 0 ? `${cagr.toFixed(1)}%` : '-', sub: '연환산 수익률', icon: TrendingUp, positive: cagr > 0 },
+        { label: 'MDD', value: `${mdd.toFixed(1)}%`, sub: '최대 손실 구간', icon: TrendingDown, positive: mdd < 10 ? true : mdd < 20 ? undefined : false },
+        { label: 'Sharpe', value: sharpe > 0 ? sharpe.toFixed(2) : '-', sub: '위험조정 수익률', icon: BarChart3, positive: sharpe >= 1 },
+        { label: 'Win Rate', value: `${winRate.toFixed(1)}%`, sub: `${paper?.total_trades ?? 0}건`, icon: Target, positive: winRate >= 50 },
+        { label: 'Profit Factor', value: profitFactor === Infinity ? '∞' : profitFactor.toFixed(2), sub: '수익/손실 비율', icon: DollarSign, positive: profitFactor > 1.5, neutral: profitFactor === Infinity || profitFactor <= 1.5 },
+    ];
     return (_jsx("div", { className: "grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-2.5", children: kpis.map((kpi) => {
             const Icon = kpi.icon;
             const isPositive = kpi.positive;

@@ -69,8 +69,14 @@ export default function PortfolioPage() {
 
   async function load() {
     try {
-      const d = await api.get<{ items: PortfolioStrategy[]; total_allocation: number }>('/api/portfolio/strategies')
-      setStrategies(d)
+      const d = await api.get<any>('/api/portfolio/strategies')
+      if (d && Array.isArray(d)) {
+        setStrategies({ items: d, total_allocation: 0 })
+      } else if (d?.items) {
+        setStrategies(d)
+      } else {
+        setStrategies({ items: [], total_allocation: 0 })
+      }
     } catch {}
   }
 
@@ -124,7 +130,7 @@ export default function PortfolioPage() {
         </button>
       </div>
 
-      {strategies && strategies.items.length === 0 ? (
+      {strategies?.items?.length === 0 ? (
         <div className="bg-surface-card rounded-2xl border border-surface-border p-6 text-center text-xs text-text-muted">
           No strategies in portfolio. Go to Strategy tab to add strategies.
         </div>
@@ -138,7 +144,7 @@ export default function PortfolioPage() {
               }`}>{totalAlloc.toFixed(1)}%</span>
             </div>
             <div className="divide-y divide-surface-border">
-              {strategies?.items.map(s => (
+              {strategies?.items?.map(s => (
                 <div key={s.id} className="px-4 py-3">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">

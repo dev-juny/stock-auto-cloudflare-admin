@@ -17,23 +17,36 @@ router = APIRouter(prefix="/api/portfolio", tags=["portfolio"])
 
 @router.get("/strategies")
 async def get_portfolio_strategies():
+    # Deduplicate portfolio_strategy by (strategy_id, generation): keep latest id
+    # Also deduplicate strategy_performance: keep latest calculated_at per strategy_id
     rows = await execute_query(
         """SELECT ps.id, ps.strategy_id, ps.generation, ps.allocation, ps.status,
                   ps.created_at, ps.approved_at,
                   pf.total_return, pf.win_rate, pf.max_drawdown, pf.fitness_score, pf.total_trades,
                   sp.last_test_at,
                   (SELECT COUNT(*) FROM evolution_evaluation_universe eu WHERE eu.generation = ps.generation) AS universe_size
-           FROM portfolio_strategy ps
-           LEFT JOIN strategy_performance pf ON pf.strategy_id = ps.strategy_id
-             AND pf.generation = (SELECT MAX(pf2.generation) FROM strategy_performance pf2 WHERE pf2.strategy_id = ps.strategy_id)
+           FROM (
+             SELECT ps.*, ROW_NUMBER() OVER (PARTITION BY ps.strategy_id, ps.generation ORDER BY ps.id DESC) AS rn
+             FROM portfolio_strategy ps
+           ) ps
+           LEFT JOIN (
+             SELECT pf.*, ROW_NUMBER() OVER (PARTITION BY pf.strategy_id ORDER BY pf.generation DESC, pf.calculated_at DESC) AS rn
+             FROM strategy_performance pf
+           ) pf ON pf.strategy_id = ps.strategy_id AND pf.rn = 1
            LEFT JOIN strategy_pool sp ON sp.id = ps.strategy_id
+           WHERE ps.rn = 1
            ORDER BY ps.created_at DESC"""
     )
     total_allocation = 0
+    seen_strategy = set()
     items = []
     for r in rows:
         alloc = float(r[3] or 0)
-        total_allocation += alloc
+        sid = r[1]
+        # Only sum allocation once per unique strategy
+        if sid not in seen_strategy:
+            total_allocation += alloc
+            seen_strategy.add(sid)
         items.append({
             "id": r[0],
             "strategy_id": r[1],
@@ -59,6 +72,13 @@ async def add_to_portfolio(data: dict):
     generation = data.get("generation")
     if not strategy_id or not generation:
         raise HTTPException(400, "strategy_id and generation required")
+    # Check for existing row before inserting to prevent duplicates
+    existing = await execute_query(
+        "SELECT id FROM portfolio_strategy WHERE strategy_id = :1 AND generation = :2",
+        [strategy_id, generation],
+    )
+    if existing:
+        raise HTTPException(409, f"Strategy {strategy_id} (generation {generation}) is already in the portfolio")
     allocation = float(data.get("allocation", 0))
     status = data.get("status", "candidate")
     await execute_non_query(

@@ -1,0 +1,18 @@
+import { jsx as _jsx, jsxs as _jsxs } from "react/jsx-runtime";
+import { ShieldAlert, AlertTriangle, Ban, DollarSign, Percent } from 'lucide-react';
+import { Card } from '../common/Card';
+import { Badge } from '../common/Badge';
+import { CardSkeleton } from '../common/Skeleton';
+export function RiskSummaryCard({ dash, loading }) {
+    if (loading)
+        return _jsx(CardSkeleton, {});
+    const risk = dash?.risk;
+    const system = dash?.system;
+    if (!risk) {
+        return (_jsxs(Card, { children: [_jsxs("div", { className: "flex items-center gap-2 mb-3", children: [_jsx(ShieldAlert, { size: 16, className: "text-text-muted" }), _jsx("h2", { className: "text-sm font-semibold text-text-primary", children: "Risk" })] }), _jsx("p", { className: "text-xs text-text-muted", children: "No risk data" })] }));
+    }
+    const blocked = risk.blocked;
+    const exposure = system?.exposure_pct ?? risk.exposure_pct;
+    const cashRatio = risk.cash_ratio;
+    return (_jsxs(Card, { children: [_jsxs("div", { className: "flex items-center justify-between mb-3", children: [_jsxs("div", { className: "flex items-center gap-2", children: [_jsx(ShieldAlert, { size: 16, className: blocked ? 'text-danger' : 'text-text-muted' }), _jsx("h2", { className: "text-sm font-semibold text-text-primary", children: "Risk" })] }), _jsx(Badge, { variant: blocked ? 'danger' : risk.status === 'PASS' ? 'success' : 'warning', children: blocked ? 'BLOCKED' : risk.status })] }), _jsxs("div", { className: "space-y-2.5", children: [_jsxs("div", { className: "flex items-center justify-between", children: [_jsxs("div", { className: "flex items-center gap-2", children: [_jsx(Percent, { size: 13, className: "text-text-muted" }), _jsx("span", { className: "text-xs text-text-muted", children: "Exposure" })] }), _jsxs("span", { className: `text-xs font-mono tabular-nums ${exposure > 90 ? 'text-danger' : 'text-text-primary'}`, children: [exposure.toFixed(1), "%"] })] }), _jsxs("div", { className: "flex items-center justify-between", children: [_jsxs("div", { className: "flex items-center gap-2", children: [_jsx(DollarSign, { size: 13, className: "text-text-muted" }), _jsx("span", { className: "text-xs text-text-muted", children: "Cash Ratio" })] }), _jsxs("span", { className: `text-xs font-mono tabular-nums ${cashRatio < 10 ? 'text-danger' : 'text-text-primary'}`, children: [cashRatio.toFixed(1), "%"] })] }), _jsxs("div", { className: "flex items-center justify-between", children: [_jsxs("div", { className: "flex items-center gap-2", children: [_jsx(Ban, { size: 13, className: "text-text-muted" }), _jsx("span", { className: "text-xs text-text-muted", children: "Open Positions" })] }), _jsx("span", { className: "text-xs font-mono tabular-nums", children: risk.open_positions })] }), risk.mdd > 0 && (_jsxs("div", { className: "flex items-center justify-between", children: [_jsxs("div", { className: "flex items-center gap-2", children: [_jsx(AlertTriangle, { size: 13, className: "text-text-muted" }), _jsx("span", { className: "text-xs text-text-muted", children: "MDD" })] }), _jsxs("span", { className: `text-xs font-mono tabular-nums ${risk.mdd > 20 ? 'text-danger' : risk.mdd > 10 ? 'text-warning' : 'text-text-primary'}`, children: [risk.mdd.toFixed(1), "%"] })] })), blocked && risk.reasons.length > 0 && (_jsxs("div", { className: "mt-2 p-2 bg-danger/10 rounded-lg", children: [_jsx("p", { className: "text-[10px] text-danger font-medium mb-1", children: "Blocked Reasons:" }), risk.reasons.map((r, i) => (_jsx("p", { className: "text-[10px] text-danger/80", children: r }, i)))] }))] })] }));
+}

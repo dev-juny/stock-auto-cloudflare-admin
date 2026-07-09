@@ -25,12 +25,12 @@ export function EvolutionPage() {
     try {
       const [st, stratList, gens] = await Promise.all([
         api.get<EvolutionStatus>('/api/evolution/status'),
-        api.get<EvolutionStrategy[]>('/api/evolution/strategies'),
-        api.get<GenerationSummary[]>('/api/evolution/generations'),
+        api.get<any>('/api/evolution/strategies'),
+        api.get<any>('/api/evolution/generations'),
       ])
       setStatus(st)
-      setStrategies(stratList)
-      setGenerations(gens)
+      setStrategies(Array.isArray(stratList) ? stratList : (stratList?.items ?? []))
+      setGenerations(Array.isArray(gens) ? gens : (gens?.items ?? []))
     } catch {}
   }, [])
 

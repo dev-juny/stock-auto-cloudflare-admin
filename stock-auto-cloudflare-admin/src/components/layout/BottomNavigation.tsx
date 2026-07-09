@@ -1,4 +1,4 @@
-import { LayoutDashboard, PieChart, CandlestickChart, ScrollText, Settings, Zap, Timer, PlayCircle } from 'lucide-react'
+import { LayoutDashboard, PieChart, CandlestickChart, ScrollText, Settings, Zap, Timer, PlayCircle, Shield, ClipboardCheck } from 'lucide-react'
 
 interface Tab {
   id: string
@@ -12,6 +12,8 @@ const tabs: Tab[] = [
   { id: 'evolution', label: 'Evolution', icon: Zap },
   { id: 'strategy', label: 'Strategy', icon: CandlestickChart },
   { id: 'paper-trading', label: 'Paper Trade', icon: PlayCircle },
+  { id: 'validation', label: 'Validation', icon: ClipboardCheck },
+  { id: 'risk', label: 'Risk', icon: Shield },
   { id: 'logs', label: 'Logs', icon: ScrollText },
   { id: 'settings', label: 'Settings', icon: Settings },
   { id: 'scheduler', label: 'Scheduler', icon: Timer },

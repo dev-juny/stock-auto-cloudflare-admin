@@ -31,5 +31,9 @@
     "@types/bcrypt": "^5.0.2",
     "@types/jsonwebtoken": "^9.0.6",
     "ts-node-dev": "^2.0.0"
+  },
+  "allowScripts": {
+    "bcrypt@5.1.1": true,
+    "oracledb@6.10.0": true
   }
 }

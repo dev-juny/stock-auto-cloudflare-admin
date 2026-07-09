@@ -11,7 +11,7 @@ from .crossover import StrategyCrossover
 from .evaluator import StrategyEvaluator
 from .database import (
     save_strategy, save_performance, save_generation, get_strategies,
-    get_strategy_by_id, log_history, ensure_evolution_tables,
+    get_strategy_by_id, log_history, ensure_evolution_tables, get_strategy_count,
 )
 from app.database import execute_non_query
 
@@ -28,8 +28,8 @@ class EvolutionEngine:
 
     async def initialize(self):
         await ensure_evolution_tables()
-        existing = await get_strategies(alive_only=False)
-        if not existing:
+        count = await get_strategy_count(alive_only=False)
+        if count == 0:
             strategies = self.generator.generate_initial_population()
             for s in strategies:
                 s.id = await save_strategy(s)

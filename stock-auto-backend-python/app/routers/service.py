@@ -29,6 +29,9 @@ router = APIRouter(prefix="/api", tags=["service"])
 
 @router.on_event("startup")
 async def init_service_tables():
+    from app.config import settings
+    if not settings.oracle_available:
+        return
     await ensure_service_tables()
 
 

@@ -18,7 +18,7 @@ export function LiveStatus({ status, generationCount, strategyCount }: Props) {
   }
 
   const items = [
-    { label: 'Generation', value: `#${status.current_generation}` },
+    { label: 'Generation', value: `#${status.current_generation ?? '?'}` },
     { label: 'Strategies', value: strategyCount.toString() },
     { label: 'Total Gens', value: generationCount.toString() },
     { label: 'Progress', value: status.is_running ? `${status.progress_pct}%` : '-' },

@@ -42,11 +42,16 @@ async def get_top_strategies(
     sort_col = SORTABLE_COLUMNS.get(sort_by, "pf.fitness_score")
     direction = "DESC" if sort_dir.lower() == "desc" else "ASC"
 
-    count_sql = """
+    latest_pf = """(
+        SELECT strategy_id, generation, total_return, win_rate, max_drawdown, profit_factor, total_trades, fitness_score,
+               ROW_NUMBER() OVER (PARTITION BY strategy_id ORDER BY generation DESC) as rn
+        FROM strategy_performance
+    ) pf ON pf.strategy_id = sp.id AND pf.rn = 1"""
+
+    count_sql = f"""
         SELECT COUNT(*)
         FROM strategy_pool sp
-        JOIN strategy_performance pf ON pf.strategy_id = sp.id
-          AND pf.generation = (SELECT MAX(pf2.generation) FROM strategy_performance pf2 WHERE pf2.strategy_id = sp.id)
+        JOIN {latest_pf}
         WHERE sp.is_alive = 'Y'
           AND pf.fitness_score >= :1
           AND pf.win_rate >= :2
@@ -63,8 +68,7 @@ async def get_top_strategies(
                pf.total_return, pf.win_rate, pf.max_drawdown, pf.profit_factor,
                pf.total_trades, pf.fitness_score
         FROM strategy_pool sp
-        JOIN strategy_performance pf ON pf.strategy_id = sp.id
-          AND pf.generation = (SELECT MAX(pf2.generation) FROM strategy_performance pf2 WHERE pf2.strategy_id = sp.id)
+        JOIN {latest_pf}
         WHERE sp.is_alive = 'Y'
           AND pf.fitness_score >= :1
           AND pf.win_rate >= :2
@@ -132,8 +136,11 @@ async def list_strategies_ranked(
                sp.last_test_at, ps.status
         FROM portfolio_strategy ps
         JOIN strategy_pool sp ON sp.id = ps.strategy_id
-        LEFT JOIN strategy_performance pf ON pf.strategy_id = ps.strategy_id
-          AND pf.generation = (SELECT MAX(pf2.generation) FROM strategy_performance pf2 WHERE pf2.strategy_id = ps.strategy_id)
+        LEFT JOIN (
+            SELECT strategy_id, total_return, win_rate, max_drawdown, profit_factor, total_trades, fitness_score,
+                   ROW_NUMBER() OVER (PARTITION BY strategy_id ORDER BY generation DESC) as rn
+            FROM strategy_performance
+        ) pf ON pf.strategy_id = ps.strategy_id AND pf.rn = 1
         WHERE 1=1 {where_extra}
         ORDER BY {sort_col} {direction}
         OFFSET :{(len(binds) + 1) if binds else 1} ROWS FETCH NEXT :{(len(binds) + 2) if binds else 2} ROWS ONLY
@@ -166,8 +173,11 @@ async def get_top_strategy_detail(strategy_id: int):
                   pf.total_return, pf.win_rate, pf.max_drawdown, pf.profit_factor,
                   pf.total_trades, pf.fitness_score
            FROM strategy_pool sp
-           INNER JOIN strategy_performance pf ON pf.strategy_id = sp.id
-             AND pf.generation = (SELECT MAX(pf2.generation) FROM strategy_performance pf2 WHERE pf2.strategy_id = sp.id)
+           INNER JOIN (
+               SELECT strategy_id, total_return, win_rate, max_drawdown, profit_factor, total_trades, fitness_score,
+                      ROW_NUMBER() OVER (PARTITION BY strategy_id ORDER BY generation DESC) as rn
+               FROM strategy_performance
+           ) pf ON pf.strategy_id = sp.id AND pf.rn = 1
            WHERE sp.id = :1""",
         [strategy_id],
     )

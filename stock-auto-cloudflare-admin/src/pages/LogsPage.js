@@ -22,7 +22,7 @@ export default function LogsPage() {
         try {
             const path = typeFilter === 'all' ? '/api/logs' : `/api/logs?log_type=${typeFilter}`;
             const data = await api.get(path);
-            setLogs(data || []);
+            setLogs(Array.isArray(data) ? data : data?.items ?? []);
         }
         catch { }
     }

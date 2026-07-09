@@ -161,16 +161,22 @@ async def auto_promote_strategies() -> dict:
     candidates = await execute_query(
         """SELECT ps.id, ps.strategy_id, ps.generation, pf.fitness_score, pf.win_rate, pf.total_trades, pf.max_drawdown, pf.profit_factor
            FROM portfolio_strategy ps
-           JOIN strategy_performance pf ON pf.strategy_id = ps.strategy_id
-             AND pf.generation = (SELECT MAX(pf2.generation) FROM strategy_performance pf2 WHERE pf2.strategy_id = ps.strategy_id)
+           JOIN (
+               SELECT strategy_id, fitness_score, win_rate, total_trades, max_drawdown, profit_factor,
+                      ROW_NUMBER() OVER (PARTITION BY strategy_id ORDER BY generation DESC) as rn
+               FROM strategy_performance
+           ) pf ON pf.strategy_id = ps.strategy_id AND pf.rn = 1
            WHERE ps.status = 'candidate'
            ORDER BY pf.fitness_score DESC""",
     )
     approved = await execute_query(
         """SELECT ps.id, ps.strategy_id, pf.fitness_score
            FROM portfolio_strategy ps
-           JOIN strategy_performance pf ON pf.strategy_id = ps.strategy_id
-             AND pf.generation = (SELECT MAX(pf2.generation) FROM strategy_performance pf2 WHERE pf2.strategy_id = ps.strategy_id)
+           JOIN (
+               SELECT strategy_id, fitness_score,
+                      ROW_NUMBER() OVER (PARTITION BY strategy_id ORDER BY generation DESC) as rn
+               FROM strategy_performance
+           ) pf ON pf.strategy_id = ps.strategy_id AND pf.rn = 1
            WHERE ps.status = 'approved'
            ORDER BY pf.fitness_score DESC""",
     )
@@ -254,8 +260,11 @@ async def rebalance_portfolio(method: str = "WEEKLY") -> dict:
     approved = await execute_query(
         """SELECT ps.id, ps.strategy_id, ps.generation, pf.fitness_score
            FROM portfolio_strategy ps
-           JOIN strategy_performance pf ON pf.strategy_id = ps.strategy_id
-             AND pf.generation = (SELECT MAX(pf2.generation) FROM strategy_performance pf2 WHERE pf2.strategy_id = ps.strategy_id)
+           JOIN (
+               SELECT strategy_id, fitness_score,
+                      ROW_NUMBER() OVER (PARTITION BY strategy_id ORDER BY generation DESC) as rn
+               FROM strategy_performance
+           ) pf ON pf.strategy_id = ps.strategy_id AND pf.rn = 1
            WHERE ps.status = 'approved'
            ORDER BY pf.fitness_score DESC""",
     )
@@ -1216,6 +1225,10 @@ async def check_live_trading_readiness() -> dict:
             passed = th["current"] >= th["target"]
             gap = max(0, th["target"] - th["current"])
             pct = min(100, th["current"] / th["target"] * 100)
+        if key == "closed_trades_gte_30":
+            passed = th["current"] >= th["target"]
+            gap = max(0, th["target"] - th["current"])
+            pct = min(100, th["current"] / th["target"] * 100)
         gaps[key] = {
             "passed": passed,
             "current": round(th["current"], 2),
@@ -1376,19 +1389,18 @@ async def get_integration_dashboard() -> dict:
 
     # Latest strategy performance
     sp_rows = await execute_query(
-        """SELECT pf, mdd, generation FROM strategy_performance
+        """SELECT fitness_score, max_drawdown, generation FROM strategy_performance
            ORDER BY generation DESC FETCH FIRST 1 ROW ONLY""",
     )
     latest_pf = float(sp_rows[0][0]) if sp_rows and sp_rows[0][0] else 0
     latest_mdd = float(sp_rows[0][1]) if sp_rows and sp_rows[0][1] else 0
     latest_gen = int(sp_rows[0][2]) if sp_rows and sp_rows[0][2] else 0
 
-    # Paper trading metrics
-    cash_balance = perf.get("cash_balance", 10000000)
+    # Paper trading metrics — compute cash ratio from actual exposure (same formula as check_risk_limits)
     initial_cap = 10000000
-    cash_ratio_pct = cash_balance / initial_cap * 100
-    current_exposure = perf.get("current_exposure", 0)
-    exposure_pct = current_exposure / initial_cap * 100
+    current_exposure_amount = risk.get("total_exposure", 0)
+    cash_ratio_pct = max(0, (initial_cap - current_exposure_amount) / initial_cap * 100)
+    exposure_pct = current_exposure_amount / initial_cap * 100
 
     # Sell trades
     sell_rows = await execute_query("SELECT COUNT(*) FROM paper_trades WHERE action = 'sell'")

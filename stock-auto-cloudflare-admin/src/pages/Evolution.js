@@ -28,8 +28,8 @@ export function EvolutionPage() {
                 api.get('/api/evolution/generations'),
             ]);
             setStatus(st);
-            setStrategies(stratList);
-            setGenerations(gens);
+            setStrategies(Array.isArray(stratList) ? stratList : (stratList?.items ?? []));
+            setGenerations(Array.isArray(gens) ? gens : (gens?.items ?? []));
         }
         catch { }
     }, []);

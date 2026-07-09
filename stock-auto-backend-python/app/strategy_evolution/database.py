@@ -1,16 +1,22 @@
 from __future__ import annotations
 
 import json
+import logging
 import random
 from datetime import datetime
 from typing import Optional
 
 from app.database import execute_query, execute_non_query, acquire_conn
+from app.config import settings as app_settings
 from .models import EvolutionStrategy, FitnessScore, GenerationSummary, EvolutionStatus
+
+logger = logging.getLogger(__name__)
 from app.utils.timezone import to_kst
 
 
 async def ensure_evolution_tables():
+    if not app_settings.oracle_available:
+        return
     ddl = [
         """
         CREATE TABLE IF NOT EXISTS strategy_pool (
@@ -166,8 +172,12 @@ async def get_strategies(generation: Optional[int] = None, alive_only: bool = Tr
                     sp.indicators_json, sp.is_alive, sp.is_elite, sp.created_at, sp.last_test_at,
                     pf.total_return, pf.win_rate, pf.max_drawdown, pf.profit_factor, pf.total_trades, pf.fitness_score
              FROM strategy_pool sp
-             LEFT JOIN strategy_performance pf ON pf.strategy_id = sp.id
-               AND pf.generation = (SELECT MAX(pf2.generation) FROM strategy_performance pf2 WHERE pf2.strategy_id = sp.id)
+             LEFT JOIN (
+                SELECT pf2.strategy_id, pf2.generation, pf2.total_return, pf2.win_rate, pf2.max_drawdown,
+                       pf2.profit_factor, pf2.total_trades, pf2.fitness_score,
+                       ROW_NUMBER() OVER (PARTITION BY pf2.strategy_id ORDER BY pf2.generation DESC) as rn
+                FROM strategy_performance pf2
+             ) pf ON pf.strategy_id = sp.id AND pf.rn = 1
              WHERE 1=1"""
     binds = []
     if alive_only:
@@ -178,6 +188,40 @@ async def get_strategies(generation: Optional[int] = None, alive_only: bool = Tr
     sql += " ORDER BY sp.generation DESC, sp.id DESC"
     rows = await execute_query(sql, binds if binds else None)
     return [_row_to_strategy(r) for r in rows]
+
+
+async def get_strategy_count(alive_only: bool = True) -> int:
+    sql = "SELECT COUNT(*) FROM strategy_pool"
+    binds = []
+    if alive_only:
+        sql += " WHERE is_alive='Y'"
+    rows = await execute_query(sql, binds if binds else None)
+    return rows[0][0] if rows else 0
+
+
+async def get_strategy_stats() -> dict:
+    sql = """SELECT COUNT(*),
+                    AVG(pf.total_return), AVG(pf.win_rate), AVG(ABS(pf.max_drawdown)),
+                    AVG(pf.profit_factor)
+             FROM strategy_pool sp
+             LEFT JOIN (
+                SELECT pf2.strategy_id, pf2.total_return, pf2.win_rate, pf2.max_drawdown,
+                       pf2.profit_factor, pf2.total_trades,
+                       ROW_NUMBER() OVER (PARTITION BY pf2.strategy_id ORDER BY pf2.generation DESC) as rn
+                FROM strategy_performance pf2
+             ) pf ON pf.strategy_id = sp.id AND pf.rn = 1
+             WHERE sp.is_alive='Y' AND pf.total_trades > 0"""
+    rows = await execute_query(sql, None)
+    if rows:
+        r = rows[0]
+        return {
+            "count": r[0],
+            "avg_return": r[1] if r[1] else 0.0,
+            "avg_winrate": r[2] if r[2] else 0.0,
+            "avg_mdd": r[3] if r[3] else 0.0,
+            "avg_profit_factor": r[4] if r[4] else 0.0,
+        }
+    return {"count": 0, "avg_return": 0.0, "avg_winrate": 0.0, "avg_mdd": 0.0, "avg_profit_factor": 0.0}
 
 
 SORTABLE_COLUMNS_EVO = {
@@ -231,8 +275,12 @@ async def get_strategies_paginated(
                           sp.indicators_json, sp.is_alive, sp.is_elite, sp.created_at, sp.last_test_at,
                           pf.total_return, pf.win_rate, pf.max_drawdown, pf.profit_factor, pf.total_trades, pf.fitness_score
                    FROM strategy_pool sp
-                   LEFT JOIN strategy_performance pf ON pf.strategy_id = sp.id
-                     AND pf.generation = (SELECT MAX(pf2.generation) FROM strategy_performance pf2 WHERE pf2.strategy_id = sp.id)
+                   LEFT JOIN (
+                       SELECT pf2.strategy_id, pf2.generation, pf2.total_return, pf2.win_rate, pf2.max_drawdown,
+                              pf2.profit_factor, pf2.total_trades, pf2.fitness_score,
+                              ROW_NUMBER() OVER (PARTITION BY pf2.strategy_id ORDER BY pf2.generation DESC) as rn
+                       FROM strategy_performance pf2
+                   ) pf ON pf.strategy_id = sp.id AND pf.rn = 1
                    WHERE {where_sql}
                    ORDER BY {sort_col} {direction}
                    OFFSET :offset ROWS FETCH NEXT :limit ROWS ONLY"""
@@ -437,8 +485,12 @@ async def get_generation_strategies(generation: int) -> list[EvolutionStrategy]:
                   pf.total_return, pf.win_rate, pf.max_drawdown,
                   pf.profit_factor, pf.total_trades, pf.fitness_score
            FROM strategy_pool sp
-           LEFT JOIN strategy_performance pf ON pf.strategy_id = sp.id
-             AND pf.generation = (SELECT MAX(pf2.generation) FROM strategy_performance pf2 WHERE pf2.strategy_id = sp.id)
+           LEFT JOIN (
+               SELECT pf2.strategy_id, pf2.generation, pf2.total_return, pf2.win_rate, pf2.max_drawdown,
+                      pf2.profit_factor, pf2.total_trades, pf2.fitness_score,
+                      ROW_NUMBER() OVER (PARTITION BY pf2.strategy_id ORDER BY pf2.generation DESC) as rn
+               FROM strategy_performance pf2
+           ) pf ON pf.strategy_id = sp.id AND pf.rn = 1
            WHERE sp.generation=:1
            ORDER BY pf.fitness_score DESC NULLS LAST""",
         [generation]
@@ -518,11 +570,15 @@ async def compare_generations(gen_a: int, gen_b: int) -> dict:
 
 
 async def count_active_strategies() -> int:
-    rows = await execute_query(
-        "SELECT COUNT(*) FROM strategy_pool WHERE is_alive='Y'",
-        None
-    )
-    return rows[0][0] if rows else 0
+    try:
+        rows = await execute_query(
+            "SELECT COUNT(*) FROM strategy_pool WHERE is_alive='Y'",
+            None
+        )
+        return rows[0][0] if rows else 0
+    except Exception as e:
+        logger.warning(f"count_active_strategies query failed: {e}")
+        return 0
 
 
 async def get_evolution_status() -> EvolutionStatus:

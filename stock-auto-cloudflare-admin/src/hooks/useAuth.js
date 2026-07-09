@@ -1,17 +1,31 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { api, setToken, clearToken, hasToken } from '../utils/api';
 export function useAuth() {
     const [isAuth, setIsAuth] = useState(false);
     const [loading, setLoading] = useState(true);
+    const mountedRef = useRef(true);
     useEffect(() => {
+        mountedRef.current = true;
         if (!hasToken()) {
             setLoading(false);
             return;
         }
-        api.get('/api/auth/me')
-            .then((d) => setIsAuth(d.success))
-            .catch(() => clearToken())
-            .finally(() => setLoading(false));
+        const controller = new AbortController();
+        api.get('/api/auth/me', { signal: controller.signal })
+            .then((d) => { if (mountedRef.current)
+            setIsAuth(d.success); })
+            .catch((e) => {
+            if (e?.message === 'Request cancelled')
+                return;
+            if (mountedRef.current)
+                clearToken();
+        })
+            .finally(() => { if (mountedRef.current)
+            setLoading(false); });
+        return () => {
+            mountedRef.current = false;
+            controller.abort();
+        };
     }, []);
     const login = useCallback(async (username, password) => {
         const d = await api.post('/api/auth/login', { username, password });
@@ -20,11 +34,11 @@ export function useAuth() {
             setIsAuth(true);
             return null;
         }
-        return d.message || '로그인 실패';
+        return d.message || 'Login failed';
     }, []);
     const logout = useCallback(() => {
         clearToken();
-        api.post('/api/auth/logout');
+        api.post('/api/auth/logout').catch(() => { });
         setIsAuth(false);
     }, []);
     return { isAuth, loading, login, logout };

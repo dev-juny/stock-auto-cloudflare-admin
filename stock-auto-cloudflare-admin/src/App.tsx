@@ -9,8 +9,11 @@ import PaperTradingPage from './pages/PaperTradingPage'
 import LogsPage from './pages/LogsPage'
 import SettingsPage from './pages/SettingsPage'
 import SchedulerPage from './pages/scheduler/SchedulerPage'
+import RiskPage from './pages/RiskPage'
+import ValidationDashboardPage from './pages/ValidationDashboardPage'
 import { DashboardHeader } from './components/layout/DashboardHeader'
 import { BottomNavigation } from './components/layout/BottomNavigation'
+import { ToastProvider } from './components/common/Toast'
 
 export default function App() {
   const { isAuth, loading, login, logout: _logout } = useAuth()
@@ -32,19 +35,23 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-screen bg-surface">
-      <DashboardHeader />
-      <main className="max-w-5xl mx-auto px-4 pt-4 pb-24">
-        {activeTab === 'dashboard' && <Dashboard />}
-        {activeTab === 'portfolio' && <PortfolioPage />}
-        {activeTab === 'evolution' && <EvolutionPage />}
+    <ToastProvider>
+      <div className="min-h-screen bg-surface">
+        <DashboardHeader />
+        <main className="max-w-5xl mx-auto px-4 pt-4 pb-24">
+          {activeTab === 'dashboard' && <Dashboard />}
+          {activeTab === 'portfolio' && <PortfolioPage />}
+          {activeTab === 'evolution' && <EvolutionPage />}
         {activeTab === 'strategy' && <StrategiesPage />}
         {activeTab === 'paper-trading' && <PaperTradingPage />}
-        {activeTab === 'logs' && <LogsPage />}
-        {activeTab === 'settings' && <SettingsPage />}
-        {activeTab === 'scheduler' && <SchedulerPage />}
+          {activeTab === 'logs' && <LogsPage />}
+          {activeTab === 'settings' && <SettingsPage />}
+          {activeTab === 'scheduler' && <SchedulerPage />}
+          {activeTab === 'risk' && <RiskPage />}
+          {activeTab === 'validation' && <ValidationDashboardPage />}
       </main>
-      <BottomNavigation active={activeTab} onChange={setActiveTab} />
-    </div>
+        <BottomNavigation active={activeTab} onChange={setActiveTab} />
+      </div>
+    </ToastProvider>
   )
 }

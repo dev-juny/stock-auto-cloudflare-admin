@@ -10,8 +10,11 @@ import PaperTradingPage from './pages/PaperTradingPage';
 import LogsPage from './pages/LogsPage';
 import SettingsPage from './pages/SettingsPage';
 import SchedulerPage from './pages/scheduler/SchedulerPage';
+import RiskPage from './pages/RiskPage';
+import ValidationDashboardPage from './pages/ValidationDashboardPage';
 import { DashboardHeader } from './components/layout/DashboardHeader';
 import { BottomNavigation } from './components/layout/BottomNavigation';
+import { ToastProvider } from './components/common/Toast';
 export default function App() {
     const { isAuth, loading, login, logout: _logout } = useAuth();
     const [activeTab, setActiveTab] = useState('dashboard');
@@ -21,5 +24,5 @@ export default function App() {
     if (!isAuth) {
         return _jsx(Login, { onLogin: login });
     }
-    return (_jsxs("div", { className: "min-h-screen bg-surface", children: [_jsx(DashboardHeader, {}), _jsxs("main", { className: "max-w-5xl mx-auto px-4 pt-4 pb-24", children: [activeTab === 'dashboard' && _jsx(Dashboard, {}), activeTab === 'portfolio' && _jsx(PortfolioPage, {}), activeTab === 'evolution' && _jsx(EvolutionPage, {}), activeTab === 'strategy' && _jsx(StrategiesPage, {}), activeTab === 'paper-trading' && _jsx(PaperTradingPage, {}), activeTab === 'logs' && _jsx(LogsPage, {}), activeTab === 'settings' && _jsx(SettingsPage, {}), activeTab === 'scheduler' && _jsx(SchedulerPage, {})] }), _jsx(BottomNavigation, { active: activeTab, onChange: setActiveTab })] }));
+    return (_jsx(ToastProvider, { children: _jsxs("div", { className: "min-h-screen bg-surface", children: [_jsx(DashboardHeader, {}), _jsxs("main", { className: "max-w-5xl mx-auto px-4 pt-4 pb-24", children: [activeTab === 'dashboard' && _jsx(Dashboard, {}), activeTab === 'portfolio' && _jsx(PortfolioPage, {}), activeTab === 'evolution' && _jsx(EvolutionPage, {}), activeTab === 'strategy' && _jsx(StrategiesPage, {}), activeTab === 'paper-trading' && _jsx(PaperTradingPage, {}), activeTab === 'logs' && _jsx(LogsPage, {}), activeTab === 'settings' && _jsx(SettingsPage, {}), activeTab === 'scheduler' && _jsx(SchedulerPage, {}), activeTab === 'risk' && _jsx(RiskPage, {}), activeTab === 'validation' && _jsx(ValidationDashboardPage, {})] }), _jsx(BottomNavigation, { active: activeTab, onChange: setActiveTab })] }) }));
 }

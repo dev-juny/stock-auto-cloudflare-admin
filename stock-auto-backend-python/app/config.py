@@ -24,6 +24,12 @@ class Settings:
 
     max_concurrent_positions: int = int(os.getenv("MAX_CONCURRENT_POSITIONS", "10"))
 
+    jwt_secret: str = os.getenv("JWT_SECRET", "development-secret-change-in-production")
+
+    allowed_origins: list[str] = field(default_factory=lambda: (
+        os.getenv("ALLOWED_ORIGINS", "http://localhost:5173,http://localhost:3001,https://stock-admin.hjjun1006.workers.dev,https://stock-admin-production.hjjun1006.workers.dev").split(",")
+    ))
+
     @property
     def oracle_available(self) -> bool:
         return bool(self.oracle_wallet_path and self.oracle_dsn and self.db_user)

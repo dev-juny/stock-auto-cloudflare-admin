@@ -10,6 +10,9 @@ def init_sqlalchemy():
     global _engine, _SessionLocal
     if _engine is not None:
         return
+    if not settings.oracle_available:
+        print("[WARN] Oracle config missing, skipping SQLAlchemy init")
+        return
     _engine = create_engine(
         f"oracle+oracledb://{settings.db_user}:{settings.db_password}@{settings.oracle_dsn}",
         pool_size=5,

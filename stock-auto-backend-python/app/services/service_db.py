@@ -4,11 +4,15 @@ from datetime import datetime
 from typing import Optional
 
 from app.database import execute_query, execute_non_query
+from app.config import settings
 from app.utils.timezone import to_kst
 
 
 async def ensure_service_tables():
     from app.database import acquire_conn
+    if not settings.oracle_available:
+        return
+
     ddl = [
         """CREATE TABLE IF NOT EXISTS portfolio_snapshot (
             id NUMBER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
@@ -222,7 +226,19 @@ async def delete_strategy(registry_id: int):
     await execute_non_query("DELETE FROM strategy_registry WHERE id=:1", [registry_id])
 
 
+def _default_settings() -> dict:
+    return {
+        'backtest_interval': '1h', 'evolution_enabled': True,
+        'population_size': 50, 'mutation_rate': 0.3, 'crossover_rate': 0.4,
+        'elite_ratio': 0.2, 'tournament_size': 5, 'max_generations': 100,
+        'fitness_return_weight': 0.5, 'fitness_winrate_weight': 0.3,
+        'fitness_mdd_penalty': 0.2, 'mdd_threshold': 10,
+        'winrate_threshold': 45, 'return_threshold': 0,
+    }
+
 async def get_settings() -> dict:
+    if not settings.oracle_available:
+        return _default_settings()
     rows = await execute_query(
         "SELECT setting_key, setting_value, setting_type FROM system_settings",
         None
