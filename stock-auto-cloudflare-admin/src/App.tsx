@@ -13,6 +13,7 @@ import { HELP_CONTENT } from './utils/helpContent'
 import type { HelpContent } from './utils/helpContent'
 import { HelpDrawer } from './components/common/HelpDrawer'
 import { InfoBanner } from './components/common/InfoBanner'
+import { NavigationContext } from './hooks/useNavigation'
 
 const EvolutionPage = lazy(() => import('./pages/Evolution').then(m => ({ default: m.EvolutionPage })))
 const PortfolioPage = lazy(() => import('./pages/PortfolioPage'))
@@ -65,6 +66,7 @@ export default function App() {
   }
 
   return (
+    <NavigationContext.Provider value={{ navigate: setActiveTab }}>
     <ToastProvider>
       <div className="min-h-screen bg-surface">
         <DashboardHeader />
@@ -119,5 +121,6 @@ export default function App() {
         />
       )}
     </ToastProvider>
+    </NavigationContext.Provider>
   )
 }

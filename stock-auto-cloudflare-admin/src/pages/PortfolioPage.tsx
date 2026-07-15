@@ -138,7 +138,7 @@ export default function PortfolioPage() {
                 Math.abs(totalAlloc - 100) < 0.01 ? 'bg-green-500/10 text-green-400' : 'bg-red-500/10 text-red-400'
               }`}>{totalAlloc.toFixed(1)}%</span>
             </div>
-            <div className="divide-y divide-surface-border">
+            <div className="divide-y divide-surface-border max-h-[60vh] overflow-y-auto">
               {strategies?.items?.map(s => (
                 <div key={s.id} className="px-4 py-3">
                   <div className="flex items-center justify-between">
@@ -147,7 +147,7 @@ export default function PortfolioPage() {
                       <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${STATUS_STYLES[s.status] || ''}`}>{s.status}</span>
                     </div>
                     <div className="flex items-center gap-2">
-                      <span className="text-sm font-bold text-primary">{s.allocation.toFixed(1)}%</span>
+                      <span className="text-sm font-bold text-primary">{(s.allocation ?? 0).toFixed(1)}%</span>
                       <button onClick={() => removeStrategy(s.id)}
                         className="p-1 text-red-400 hover:bg-red-500/10 rounded-lg transition-colors">
                         <Trash2 size={12} />
@@ -156,13 +156,13 @@ export default function PortfolioPage() {
                   </div>
                   <div className="flex gap-3 mt-1 text-[10px] text-text-muted">
                     <Tooltip content={findGlossary('fitness')?.description ?? 'Fitness'}>
-                      <span>Fitness: <span className="text-amber-400">{s.fitness.toFixed(2)}</span></span>
+                      <span>Fitness: <span className="text-amber-400">{(s.fitness ?? 0).toFixed(2)}</span></span>
                     </Tooltip>
                     <Tooltip content={findGlossary('return')?.description ?? 'Return'}>
-                      <span>Return: <span className={s.return_pct >= 0 ? 'text-green-400' : 'text-red-400'}>{s.return_pct.toFixed(1)}%</span></span>
+                      <span>Return: <span className={(s.return_pct ?? 0) >= 0 ? 'text-green-400' : 'text-red-400'}>{(s.return_pct ?? 0).toFixed(1)}%</span></span>
                     </Tooltip>
                     <Tooltip content={findGlossary('winRate')?.description ?? 'Win'}>
-                      <span>Win: <span className="text-blue-400">{s.win_rate.toFixed(1)}%</span></span>
+                      <span>Win: <span className="text-blue-400">{(s.win_rate ?? 0).toFixed(1)}%</span></span>
                     </Tooltip>
                   </div>
                   {s.status === 'candidate' && (
@@ -182,7 +182,7 @@ export default function PortfolioPage() {
                       <input type="range" min="0" max="100" value={s.allocation}
                         onChange={e => updateStrategy(s.id, { allocation: parseFloat(e.target.value) })}
                         className="flex-1 h-1 accent-primary" />
-                      <span className="text-[10px] text-text-muted w-8 text-right">{s.allocation.toFixed(0)}%</span>
+                      <span className="text-[10px] text-text-muted w-8 text-right">{(s.allocation ?? 0).toFixed(0)}%</span>
                     </div>
                   )}
                 </div>

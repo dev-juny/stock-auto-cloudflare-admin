@@ -1,9 +1,15 @@
-import { useState } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useLogs } from '../../hooks/useLogs'
 import { Card } from '../common/Card'
 import { CardSkeleton } from '../common/Skeleton'
 import { formatTime } from '../../utils/format'
-import { AlertCircle, Info, AlertTriangle, ChevronDown, ChevronUp } from 'lucide-react'
+import { AlertCircle, Info, AlertTriangle, ChevronDown, ChevronUp, RefreshCw } from 'lucide-react'
+
+const LOG_LEVELS: Record<string, string> = {
+  error: 'ERROR', err: 'ERROR', critical: 'ERROR',
+  warn: 'WARN', warning: 'WARN',
+  info: 'INFO',
+}
 
 const levelConfig: Record<string, { icon: typeof AlertCircle; color: string; bg: string }> = {
   ERROR: { icon: AlertCircle, color: 'text-danger', bg: 'bg-danger/10' },
@@ -11,9 +17,25 @@ const levelConfig: Record<string, { icon: typeof AlertCircle; color: string; bg:
   INFO: { icon: Info, color: 'text-primary', bg: 'bg-primary/10' },
 }
 
+function resolveLevel(logType: string): string {
+  return LOG_LEVELS[logType.toLowerCase()] || 'INFO'
+}
+
+function displayLabel(logType: string): string {
+  const lower = logType.toLowerCase()
+  if (LOG_LEVELS[lower]) return LOG_LEVELS[lower]
+  return logType
+}
+
 export function LogViewer() {
-  const { logs, loading } = useLogs()
+  const { logs, loading, refetch } = useLogs()
   const [showAll, setShowAll] = useState(false)
+  const timerRef = useRef<ReturnType<typeof setInterval>>()
+
+  useEffect(() => {
+    timerRef.current = setInterval(refetch, 30000)
+    return () => clearInterval(timerRef.current)
+  }, [refetch])
 
   if (loading) return <CardSkeleton />
 
@@ -23,7 +45,12 @@ export function LogViewer() {
   return (
     <Card>
       <div className="flex items-center justify-between mb-3">
-        <h2 className="text-sm font-semibold text-text-primary">시스템 로그</h2>
+        <div className="flex items-center gap-2">
+          <h2 className="text-sm font-semibold text-text-primary">시스템 로그</h2>
+          <button onClick={refetch} className="text-text-muted hover:text-text-primary transition-colors min-h-[24px] min-w-[24px] flex items-center justify-center">
+            <RefreshCw size={12} />
+          </button>
+        </div>
         {logs.length > 0 && (
           <span className="text-[11px] text-text-muted">{logs.length}건</span>
         )}
@@ -34,7 +61,8 @@ export function LogViewer() {
       ) : (
         <div className="space-y-1">
           {display.map((l) => {
-            const level = l.log_type || 'INFO'
+            const raw = l.log_type || 'INFO'
+            const level = resolveLevel(raw)
             const cfg = levelConfig[level] || levelConfig.INFO
             const Icon = cfg.icon
             return (
@@ -45,7 +73,7 @@ export function LogViewer() {
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 mb-0.5">
                     <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded ${cfg.bg} ${cfg.color}`}>
-                      {level}
+                      {displayLabel(raw)}
                     </span>
                     <span className="text-[10px] text-text-muted font-mono">{l.source}</span>
                     <span className="text-[10px] text-text-muted/60 font-mono tabular-nums ml-auto">

@@ -1,9 +1,10 @@
 import { useState, useEffect } from 'react'
-import { ChevronDown, ChevronUp, Settings, Play, Square } from 'lucide-react'
+import { ChevronDown, ChevronUp, Settings, Play } from 'lucide-react'
 import { Card } from '../common/Card'
 import { CardSkeleton } from '../common/Skeleton'
 import { Badge } from '../common/Badge'
 import { api, ConfigEntry } from '../../utils/api'
+import { useNavigation } from '../../hooks/useNavigation'
 
 interface StrategySummary {
   active: boolean
@@ -16,6 +17,7 @@ export function StrategyCard() {
   const [summary, setSummary] = useState<StrategySummary | null>(null)
   const [loading, setLoading] = useState(true)
   const [open, setOpen] = useState(false)
+  const { navigate } = useNavigation()
 
   useEffect(() => {
     api.get<ConfigEntry[]>('/api/backtest/configs')
@@ -104,8 +106,8 @@ export function StrategyCard() {
               TP 7%
             </span>
           </div>
-          <button className="flex items-center gap-1.5 text-[11px] text-text-muted mt-2 min-h-[36px] transition-colors hover:text-text-primary">
-            <Play size={12} /> 백테스트에서 전략 설정하기
+          <button onClick={() => navigate('settings')} className="flex items-center gap-1.5 text-[11px] text-text-primary mt-2 min-h-[36px] transition-colors hover:text-primary">
+            <Play size={12} /> 전략 설정 바로가기
           </button>
         </div>
       )}
