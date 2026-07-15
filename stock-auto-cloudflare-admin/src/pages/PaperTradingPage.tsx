@@ -9,7 +9,7 @@ import { formatStockDisplay } from '../utils/format'
 import {
   Wallet, TrendingUp, TrendingDown, RefreshCw, Play,
   CheckCircle, XCircle, Activity, LogOut, Pause, PlayCircle,
-  Plus, Square, RotateCcw, ChevronDown, Settings, Save,
+  Plus, Square, RotateCcw, ChevronDown, Settings, Save, Trash2,
 } from 'lucide-react'
 
 interface PaperSession {
@@ -117,6 +117,9 @@ export default function PaperTradingPage() {
   const [showNewSession, setShowNewSession] = useState(false)
   const [showResetConfirm, setShowResetConfirm] = useState(false)
   const [showStopConfirm, setShowStopConfirm] = useState(false)
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
+  const [deleteTargetId, setDeleteTargetId] = useState<number | null>(null)
+  const { loading: deleteLoading, execute: deleteExec } = useAction()
   const [sessionMenuOpen, setSessionMenuOpen] = useState(false)
   const [schedulerStatus, setSchedulerStatus] = useState<string>('unknown')
   const [newSession, setNewSession] = useState({
@@ -273,6 +276,22 @@ export default function PaperTradingPage() {
     await loadAll()
   }
 
+  async function handleDeleteSession() {
+    if (deleteTargetId === null) return
+    await deleteExec(
+      () => api.delete(`/api/paper-trading/sessions/${deleteTargetId}`),
+      'Session deleted',
+    )
+    setShowDeleteConfirm(false)
+    setDeleteTargetId(null)
+    if (currentSessionId === deleteTargetId) {
+      const remaining = sessions.filter(s => s.id !== deleteTargetId)
+      if (remaining.length > 0) setCurrentSessionId(remaining[0].id)
+    }
+    await loadSessions()
+    await loadAll()
+  }
+
   async function selectSession(id: number) {
     setCurrentSessionId(id)
     setSessionMenuOpen(false)
@@ -390,19 +409,30 @@ export default function PaperTradingPage() {
           {sessionMenuOpen && (
             <div className="absolute top-full left-0 mt-1 z-50 bg-surface-card border border-surface-border rounded-xl shadow-xl min-w-[200px] max-h-60 overflow-y-auto">
               {sessions.map(s => (
-                <button
+                <div
                   key={s.id}
-                  onClick={() => selectSession(s.id)}
-                  className={`w-full text-left px-3 py-2 text-xs flex items-center gap-2 hover:bg-surface-hover transition-colors ${
+                  className={`flex items-center px-3 py-2 text-xs hover:bg-surface-hover transition-colors ${
                     s.id === currentSessionId ? 'bg-primary/10 text-primary' : 'text-text'
                   } ${s.status !== 'active' ? 'opacity-60' : ''}`}
                 >
-                  <span className={`w-1.5 h-1.5 rounded-full ${s.status === 'active' ? 'bg-green-400' : 'bg-text-muted'}`} />
-                  <span className="font-medium">{s.name}</span>
-                  <span className="ml-auto text-[10px] text-text-muted">
-                    {s.status === 'active' ? 'Active' : s.status}
-                  </span>
-                </button>
+                  <button
+                    onClick={() => selectSession(s.id)}
+                    className="flex items-center gap-2 flex-1 text-left"
+                  >
+                    <span className={`w-1.5 h-1.5 rounded-full ${s.status === 'active' ? 'bg-green-400' : 'bg-text-muted'}`} />
+                    <span className="font-medium">{s.name}</span>
+                    <span className="ml-auto text-[10px] text-text-muted">
+                      {s.status === 'active' ? 'Active' : s.status}
+                    </span>
+                  </button>
+                  <button
+                    onClick={(e) => { e.stopPropagation(); setDeleteTargetId(s.id); setShowDeleteConfirm(true); }}
+                    className="ml-2 p-1 rounded-md hover:bg-red-500/10 text-text-muted hover:text-red-400 transition-colors"
+                    title="Delete session"
+                  >
+                    <Trash2 size={12} />
+                  </button>
+                </div>
               ))}
             </div>
           )}
@@ -724,6 +754,18 @@ export default function PaperTradingPage() {
         loading={stopLoading}
         onConfirm={handleStopSession}
         onCancel={() => setShowStopConfirm(false)}
+      />
+
+      {/* Delete Confirm */}
+      <ConfirmDialog
+        open={showDeleteConfirm}
+        title="Delete Session"
+        message={`Delete session "${sessions.find(s => s.id === deleteTargetId)?.name || `#${deleteTargetId}`}"? All positions, trades, and history will be permanently removed.`}
+        confirmLabel="Delete"
+        variant="danger"
+        loading={deleteLoading}
+        onConfirm={handleDeleteSession}
+        onCancel={() => { setShowDeleteConfirm(false); setDeleteTargetId(null); }}
       />
 
       {/* New Session Modal */}
