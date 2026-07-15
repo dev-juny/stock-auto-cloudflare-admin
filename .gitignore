@@ -11,3 +11,8 @@ stock-test/
 fix_db*.py
 gen_token*.py
 check_cols.py
+
+.dev.vars*
+!.dev.vars.example
+.env*
+!.env.example
