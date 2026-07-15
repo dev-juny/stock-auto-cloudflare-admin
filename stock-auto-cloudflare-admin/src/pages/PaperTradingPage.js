@@ -81,10 +81,15 @@ export default function PaperTradingPage() {
     const loadSessions = useCallback(async () => {
         try {
             const res = await api.get('/api/paper-trading/sessions');
-            setSessions(res.items || []);
+            const list = res.items || [];
+            setSessions(list);
+            if (list.length > 0 && !list.find(s => s.id === currentSessionId)) {
+                const active = list.find(s => s.status === 'active');
+                setCurrentSessionId(active ? active.id : list[0].id);
+            }
         }
         catch { }
-    }, []);
+    }, [currentSessionId]);
     const loadAll = useCallback(async () => {
         try {
             setError(null);
