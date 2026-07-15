@@ -34,7 +34,9 @@ export function PositionsCard() {
       </div>
       <div className="space-y-1">
         {positions.map((p) => {
-          const isPositive = p.pnl_pct >= 0
+          const pnl = p.pnl_pct ?? p.profit_pct ?? 0
+          const isPositive = pnl >= 0
+          const amt = p.pnl_amount ?? 0
           return (
             <div
               key={p.ticker}
@@ -43,15 +45,15 @@ export function PositionsCard() {
               <div className="flex-1 min-w-0">
                 <div className="text-sm font-medium text-text-primary truncate">{formatStockDisplay(p.name, p.ticker)}</div>
                 <div className="text-[11px] text-text-muted font-mono tabular-nums">
-                  {p.quantity}주 @ {formatKRW(p.entry_price)}
+                  {p.quantity ?? 0}주 @ {formatKRW(p.entry_price ?? 0)}
                 </div>
               </div>
               <div className="text-right">
                 <div className={`text-sm font-semibold font-mono tabular-nums ${isPositive ? 'text-success' : 'text-danger'}`}>
-                  {formatPct(p.pnl_pct)}
+                  {formatPct(pnl)}
                 </div>
                 <div className={`text-[11px] font-mono tabular-nums ${isPositive ? 'text-success' : 'text-danger'}`}>
-                  {isPositive ? '+' : ''}{formatKRW(p.pnl_amount)}
+                  {amt >= 0 ? '+' : ''}{formatKRW(amt)}
                 </div>
               </div>
             </div>

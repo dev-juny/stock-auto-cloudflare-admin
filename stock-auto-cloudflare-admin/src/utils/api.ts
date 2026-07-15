@@ -175,12 +175,11 @@ export interface BalanceResponse {
 }
 
 export interface LogEntry {
-  LOG_ID: number
-  LOG_LEVEL: string
-  SOURCE: string
-  MESSAGE: string
-  CONTEXT: string | null
-  CREATED_AT: string
+  id: number
+  log_type: string
+  source: string
+  message: string
+  created_at: string
 }
 
 export interface TradeEntry {
@@ -206,13 +205,17 @@ export interface ConfigEntry {
 
 export interface PositionEntry {
   ticker: string
-  name: string
+  name?: string
   entry_price: number
-  current_price: number
+  current_price?: number
   quantity: number
-  pnl_pct: number
-  pnl_amount: number
-  entered_at: string
+  pnl_pct?: number
+  profit_pct?: number
+  pnl_amount?: number
+  entered_at?: string
+  holding_days?: number
+  highest_price?: number
+  is_break_even?: boolean
 }
 
 export interface StrategyParams {
@@ -401,10 +404,13 @@ export interface PromotionEntry {
   id: number
   strategy_id: number
   strategy_name: string
-  action: string
-  fitness: number
+  old_status?: string
+  new_status?: string
+  action?: string
+  fitness?: number
   reason: string
-  promoted_at: string
+  created_at: string
+  promoted_at?: string
 }
 
 export interface PromotionHistoryResponse {

@@ -34,27 +34,25 @@ export function LogViewer() {
       ) : (
         <div className="space-y-1">
           {display.map((l) => {
-            const cfg = levelConfig[l.LOG_LEVEL] || levelConfig.INFO
+            const level = l.log_type || 'INFO'
+            const cfg = levelConfig[level] || levelConfig.INFO
             const Icon = cfg.icon
             return (
-              <div key={l.LOG_ID} className="flex items-start gap-2.5 py-2 border-b border-surface-border last:border-0">
+              <div key={l.id} className="flex items-start gap-2.5 py-2 border-b border-surface-border last:border-0">
                 <div className={`mt-0.5 ${cfg.color}`}>
                   <Icon size={13} />
                 </div>
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 mb-0.5">
                     <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded ${cfg.bg} ${cfg.color}`}>
-                      {l.LOG_LEVEL}
+                      {level}
                     </span>
-                    <span className="text-[10px] text-text-muted font-mono">{l.SOURCE}</span>
+                    <span className="text-[10px] text-text-muted font-mono">{l.source}</span>
                     <span className="text-[10px] text-text-muted/60 font-mono tabular-nums ml-auto">
-                      {formatTime(l.CREATED_AT)}
+                      {formatTime(l.created_at)}
                     </span>
                   </div>
-                  <div className="text-xs text-text-primary leading-snug">{l.MESSAGE}</div>
-                  {l.CONTEXT && (
-                    <div className="text-[10px] text-text-muted/70 mt-0.5 font-mono">{l.CONTEXT}</div>
-                  )}
+                  <div className="text-xs text-text-primary leading-snug">{l.message}</div>
                 </div>
               </div>
             )
