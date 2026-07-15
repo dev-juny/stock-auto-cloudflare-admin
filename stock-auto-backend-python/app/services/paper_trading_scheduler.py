@@ -5,7 +5,7 @@ import logging
 from datetime import datetime, timezone, timedelta
 
 from app.database import execute_query
-from app.services.paper_trading_service import run_paper_trading_cycle
+from app.services.paper_trading_service import run_paper_trading_cycle, list_sessions
 from app.services.operations_service import auto_promote_strategies, rebalance_portfolio
 
 logger = logging.getLogger(__name__)
@@ -15,7 +15,6 @@ DEFAULT_INTERVAL_SECONDS = 3600  # 1 hour
 _running = False
 _task: asyncio.Task | None = None
 
-# Track last run of maintenance tasks (daily-ish)
 _last_promotion_date: str | None = None
 _last_rebalance_date: str | None = None
 
@@ -41,11 +40,9 @@ def _is_market_hours() -> bool:
 
 
 async def _run_maintenance():
-    """Run daily maintenance tasks: auto-promotion, rebalance."""
     global _last_promotion_date, _last_rebalance_date
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
-    # Auto-promotion once daily
     if _last_promotion_date != today:
         try:
             result = await auto_promote_strategies()
@@ -54,7 +51,6 @@ async def _run_maintenance():
         except Exception as e:
             logger.error("[PAPER-SCHEDULER] Auto-promotion error: %s", e)
 
-    # Monthly rebalance (1st of month)
     if datetime.now(timezone.utc).day == 1 and _last_rebalance_date != today:
         try:
             result = await rebalance_portfolio("TOP3")
@@ -62,6 +58,23 @@ async def _run_maintenance():
             _last_rebalance_date = today
         except Exception as e:
             logger.error("[PAPER-SCHEDULER] Rebalance error: %s", e)
+
+
+async def _run_cycle_for_auto_sessions():
+    """Run paper trading cycle for all active sessions with auto_mode enabled."""
+    sessions = await list_sessions()
+    active_auto_sessions = [s for s in sessions if s["status"] == "active" and s["auto_mode"]]
+    if not active_auto_sessions:
+        logger.debug("[PAPER-SCHEDULER] No active auto-mode sessions found")
+        return
+
+    for sess in active_auto_sessions:
+        try:
+            logger.info("[PAPER-SCHEDULER] Running cycle for session %d (%s)", sess["id"], sess["name"])
+            result = await run_paper_trading_cycle(session_id=sess["id"])
+            logger.info("[PAPER-SCHEDULER] Session %d cycle result: %s", sess["id"], result)
+        except Exception as e:
+            logger.error("[PAPER-SCHEDULER] Session %d cycle error: %s", sess["id"], e)
 
 
 async def _loop():
@@ -72,9 +85,8 @@ async def _loop():
         try:
             interval = await _load_interval()
             if _is_market_hours():
-                logger.info("[PAPER-SCHEDULER] Running paper trading cycle...")
-                result = await run_paper_trading_cycle()
-                logger.info("[PAPER-SCHEDULER] Cycle result: %s", result)
+                logger.info("[PAPER-SCHEDULER] Running paper trading cycles...")
+                await _run_cycle_for_auto_sessions()
             else:
                 logger.debug("[PAPER-SCHEDULER] Outside market hours, skipping")
             await _run_maintenance()
@@ -98,3 +110,24 @@ def stop_paper_trading_scheduler():
     if _task:
         _task.cancel()
         _task = None
+
+
+def pause_paper_trading_scheduler():
+    global _running
+    _running = False
+    logger.info("[PAPER-SCHEDULER] Paused")
+
+
+def resume_paper_trading_scheduler():
+    global _task, _running
+    if _task is not None and not _task.done() and _running:
+        logger.warning("[PAPER-SCHEDULER] Already running")
+        return
+    _task = asyncio.create_task(_loop())
+    logger.info("[PAPER-SCHEDULER] Resumed")
+
+
+def get_paper_trading_scheduler_status() -> str:
+    if _task is not None and not _task.done() and _running:
+        return "running"
+    return "paused"

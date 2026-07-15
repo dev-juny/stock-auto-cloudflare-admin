@@ -13,7 +13,7 @@ import { Card } from '../components/common/Card'
 import { CardSkeleton } from '../components/common/Skeleton'
 import { Tooltip } from '../components/common/Tooltip'
 import { findGlossary } from '../utils/glossary'
-import { Gauge, TrendingUp, TrendingDown, Activity, ShoppingCart, BarChart3, Calendar, Clock } from 'lucide-react'
+import { Gauge, TrendingUp, TrendingDown, Activity, ShoppingCart, BarChart3, Calendar, Clock, AlertTriangle, Shield, ArrowUp, ArrowDown } from 'lucide-react'
 
 export function Dashboard() {
   const { data: dash, loading, refetch } = useDashboard()
@@ -37,7 +37,7 @@ export function Dashboard() {
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
           <Card>
             <div className="flex items-center gap-2 mb-2">
-              <Gauge size={14} className="text-primary" />
+              <Gauge size={14} className={risk?.blocked ? 'text-red-400' : 'text-primary'} />
               <Tooltip content={findGlossary('exposure')?.description ?? 'Exposure'}>
             <span className="text-[10px] font-medium text-text-muted uppercase tracking-wider">Exposure</span>
           </Tooltip>
@@ -45,14 +45,24 @@ export function Dashboard() {
             <div className="relative pt-1">
               <div className="flex items-center justify-between mb-1">
                 <span className="text-xs text-text-muted">Capital Deployed</span>
-                <span className={`text-xs font-mono tabular-nums ${(dash.system?.exposure_pct ?? 0) > 90 ? 'text-red-400' : (dash.system?.exposure_pct ?? 0) > 70 ? 'text-amber-400' : 'text-green-400'}`}>
-                  {dash.system?.exposure_pct?.toFixed(1) ?? risk?.exposure_pct?.toFixed(1) ?? '-'}%
+                <span className={`text-xs font-mono tabular-nums ${(risk?.exposure_pct ?? 0) > 80 ? 'text-red-400' : (risk?.exposure_pct ?? 0) > 60 ? 'text-amber-400' : 'text-green-400'}`}>
+                  {risk?.exposure_pct?.toFixed(1) ?? dash.system?.exposure_pct?.toFixed(1) ?? '-'}%
                 </span>
               </div>
-              <div className="w-full h-2 bg-surface rounded-full overflow-hidden">
-                <div className="h-full rounded-full bg-primary transition-all"
-                  style={{ width: `${Math.min(100, dash.system?.exposure_pct ?? risk?.exposure_pct ?? 0)}%` }} />
+              <div className="w-full h-2.5 bg-surface rounded-full overflow-hidden">
+                <div className="h-full rounded-full transition-all"
+                  style={{ width: `${Math.min(100, risk?.exposure_pct ?? dash.system?.exposure_pct ?? 0)}%`, background: (risk?.exposure_pct ?? 0) > 80 ? '#ef4444' : (risk?.exposure_pct ?? 0) > 60 ? '#f59e0b' : '#22c55e' }} />
               </div>
+              {(risk?.max_capital_deployment ?? 0) > 0 && (
+                <div className="relative h-1 mt-1">
+                  <div className="absolute top-0 w-0.5 h-full bg-white/40 rounded-full"
+                    style={{ left: `${Math.min(100, risk?.max_capital_deployment ?? 0)}%` }} />
+                </div>
+              )}
+            </div>
+            <div className="flex items-center justify-between mt-2 text-[9px] text-text-muted/50">
+              <span>Allowed {risk?.max_capital_deployment?.toFixed(0) ?? '-'}%</span>
+              {risk?.blocked && <span className="text-red-400/60">Limit reached</span>}
             </div>
           </Card>
 
@@ -181,13 +191,27 @@ export function Dashboard() {
       {/* Risk BLOCKED card */}
       {!loading && dash && risk?.blocked && (
         <Card className="!border-red-500/30 !bg-red-500/5">
-          <div className="flex items-center gap-2 mb-2">
-            <TrendingDown size={16} className="text-red-400" />
-            <span className="text-xs font-semibold text-red-400 uppercase tracking-wider">Risk BLOCKED</span>
+          <div className="flex items-center gap-2 mb-3">
+            <AlertTriangle size={16} className="text-red-400" />
+            <span className="text-xs font-semibold text-red-400 uppercase tracking-wider">BUY Blocked</span>
+            <span className="text-[9px] text-red-400/60 ml-auto">Exposure exceeds limit</span>
           </div>
-          {risk.reasons.map((r, i) => (
-            <div key={i} className="text-xs text-red-400/80 py-0.5">{r}</div>
-          ))}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+            <div className="bg-red-500/8 rounded-lg p-2 border border-red-500/10">
+              <div className="text-[9px] text-red-400/60">Exposure</div>
+              <div className="text-xs font-bold text-red-400 font-mono tabular-nums">{risk.exposure_pct?.toFixed(1) ?? '-'}%</div>
+            </div>
+            <div className="bg-red-500/8 rounded-lg p-2 border border-red-500/10">
+              <div className="text-[9px] text-red-400/60">Allowed</div>
+              <div className="text-xs font-bold text-amber-400 font-mono tabular-nums">{risk.max_capital_deployment?.toFixed(1) ?? '-'}%</div>
+            </div>
+            {risk.risk_reject_count > 0 && (
+              <div className="bg-red-500/8 rounded-lg p-2 border border-red-500/10">
+                <div className="text-[9px] text-red-400/60">Rejected Orders</div>
+                <div className="text-xs font-bold text-red-400 font-mono tabular-nums">{risk.risk_reject_count}</div>
+              </div>
+            )}
+          </div>
         </Card>
       )}
 

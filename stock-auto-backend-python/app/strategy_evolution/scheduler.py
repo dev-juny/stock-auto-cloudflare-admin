@@ -93,6 +93,16 @@ class EvolutionScheduler:
                                 session.close()
                         except Exception:
                             pass
+                        # ── Trigger pipeline after successful evolution ──
+                        try:
+                            from app.services.automation_service import run_pipeline
+                            pipeline_result = await run_pipeline(start_step="portfolio_backtest")
+                            logger = __import__('logging').getLogger(__name__)
+                            logger.info("[EVOLUTION-SCHEDULER] Pipeline result: %s", pipeline_result.get("status"))
+                        except Exception as pe:
+                            logger = __import__('logging').getLogger(__name__)
+                            logger.error("[EVOLUTION-SCHEDULER] Pipeline error: %s", pe)
+
                     except Exception as e:
                         elapsed_ms = int((time.time() - gen_start) * 1000)
                         status.is_running = False

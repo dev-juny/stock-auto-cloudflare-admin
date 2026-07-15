@@ -1358,17 +1358,21 @@ async def refresh_breadth() -> dict:
 async def list_trade_logs(limit: int = 50, ticker: str = "") -> list[dict]:
     try:
         if ticker:
-            sql = """SELECT id, ticker, action, price, quantity, reason,
-                            TO_CHAR(traded_at, 'YYYY-MM-DD HH24:MI:SS')
-                     FROM trade_logs
-                     WHERE ticker = :1
-                     ORDER BY traded_at DESC"""
+            sql = """SELECT tl.id, tl.ticker, tl.action, tl.price, tl.quantity, tl.reason,
+                            TO_CHAR(tl.traded_at, 'YYYY-MM-DD HH24:MI:SS'),
+                            ks.name
+                     FROM trade_logs tl
+                     LEFT JOIN kospi_stocks ks ON ks.ticker = tl.ticker
+                     WHERE tl.ticker = :1
+                     ORDER BY tl.traded_at DESC"""
             params = [ticker]
         else:
-            sql = """SELECT id, ticker, action, price, quantity, reason,
-                            TO_CHAR(traded_at, 'YYYY-MM-DD HH24:MI:SS')
-                     FROM trade_logs
-                     ORDER BY traded_at DESC"""
+            sql = """SELECT tl.id, tl.ticker, tl.action, tl.price, tl.quantity, tl.reason,
+                            TO_CHAR(tl.traded_at, 'YYYY-MM-DD HH24:MI:SS'),
+                            ks.name
+                     FROM trade_logs tl
+                     LEFT JOIN kospi_stocks ks ON ks.ticker = tl.ticker
+                     ORDER BY tl.traded_at DESC"""
             params = []
         rows = await execute_query(sql, params)
         result = []
@@ -1376,6 +1380,7 @@ async def list_trade_logs(limit: int = 50, ticker: str = "") -> list[dict]:
             result.append({
                 "id": r[0],
                 "ticker": r[1],
+                "name": r[7] if len(r) > 7 else None,
                 "action": r[2],
                 "price": float(r[3]) if r[3] else None,
                 "quantity": int(r[4]) if r[4] else None,

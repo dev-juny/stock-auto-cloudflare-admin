@@ -37,7 +37,7 @@ export function formatUptime(s) {
     return `${h}시간 ${m}분`;
 }
 export function formatStockDisplay(name, code) {
-    if (name && name !== code)
+    if (name && code && name !== code)
         return `${name} (${code})`;
-    return code;
+    return code || name || '-';
 }

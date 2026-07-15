@@ -70,8 +70,9 @@ class StockRepository:
     def upsert_daily_bulk(self, items: list[dict]) -> int:
         if not items:
             return 0
+        self.session.execute(text("ALTER SESSION DISABLE PARALLEL DML"))
         stmt = text("""
-            MERGE INTO stock_daily t
+            MERGE /*+ NO_PARALLEL(t) */ INTO stock_daily t
             USING (SELECT :code AS code, :trade_date AS trade_date FROM DUAL) s
             ON (t.code = s.code AND t.trade_date = s.trade_date)
             WHEN MATCHED THEN UPDATE SET
@@ -89,7 +90,9 @@ class StockRepository:
                 (:code, :trade_date, :open_price, :high_price, :low_price, :close_price,
                  :volume, :trading_value, :market_cap)
         """)
-        self.session.execute(stmt, items)
+        SUB_BATCH = 500
+        for i in range(0, len(items), SUB_BATCH):
+            self.session.execute(stmt, items[i:i + SUB_BATCH])
         return len(items)
 
     def get_daily_count(self) -> int:

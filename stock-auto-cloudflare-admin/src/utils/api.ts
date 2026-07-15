@@ -383,6 +383,8 @@ export interface RiskCheckResult {
   today_pnl_pct: number
   open_positions: number
   total_exposure: number
+  exposure_pct: number
+  available_exposure_pct: number
   cash_ratio: number
   single_asset_ratio: number
   consecutive_losses: number
@@ -391,6 +393,8 @@ export interface RiskCheckResult {
   max_capital_deployment: number
   min_cash_ratio: number
   max_exposure: number
+  risk_reject_count: number
+  last_risk_reason: string
 }
 
 export interface PromotionEntry {
@@ -566,10 +570,17 @@ export interface DashboardRisk {
   open_positions: number
   mdd: number
   exposure_pct: number
+  available_exposure_pct: number
   max_capital_deployment: number
+  risk_reject_count: number
+  last_risk_reason: string
 }
 
 export interface DashboardPaperTrading {
+  session_id: number
+  session_name: string
+  session_status: string
+  initial_capital: number
   total_return: number
   total_pnl: number
   win_rate: number

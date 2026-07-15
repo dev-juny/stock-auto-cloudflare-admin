@@ -15,6 +15,7 @@ from app.strategy_evolution.database import get_strategies, get_strategy_by_id, 
 from app.services.operations_service import (
     get_portfolio_health, get_evolution_dashboard, get_paper_performance,
     auto_promote_strategies, get_risk_settings, update_risk_setting, check_risk_limits,
+    get_scan_settings, update_scan_setting,
     get_promotion_history, rebalance_portfolio, get_rebalance_history,
     get_scheduler_status, get_system_health,
     start_validation, stop_validation, get_validation_status,
@@ -22,6 +23,28 @@ from app.services.operations_service import (
     get_validation_dashboard,
     simulate_cash_ratio, set_capital_deployment,
     get_integration_dashboard,
+)
+from app.services.automation_service import (
+    run_pipeline, run_single_step, get_pipeline_status, get_pipeline_logs,
+    get_pipeline_config, update_pipeline_config,
+)
+from app.services.strategy_lifecycle import (
+    get_strategies_by_stage, get_strategies_by_stages,
+    promote_strategy, demote_strategy, set_lifecycle_stage,
+    ensure_lifecycle_tables, get_production_history,
+    acquire_production_lock, release_production_lock, get_production_lock_status,
+)
+from app.services.survivor_service import (
+    calculate_survivor_score, evaluate_survivors,
+    evaluate_production_candidates, auto_replace_production,
+    get_production_dashboard, get_survivor_pool,
+    get_survivor_score_history, get_survivor_weights, update_survivor_weights,
+    promote_to_production, rollback_production,
+)
+from app.services.shadow_trading_service import (
+    create_shadow_session, stop_shadow_session, execute_shadow_order,
+    get_shadow_session, list_shadow_sessions, get_shadow_orders, get_shadow_positions,
+    evaluate_shadow_for_production, get_shadow_dashboard,
 )
 
 router = APIRouter(prefix="/api", tags=["service"])
@@ -219,7 +242,24 @@ async def save_risk_settings(data: dict):
     for key in ("max_portfolio_allocation", "max_position_allocation", "daily_loss_limit", "daily_profit_lock", "risk_mode"):
         if key in data:
             await update_risk_setting(key, data[key])
+            if key == "max_portfolio_allocation":
+                await update_setting("max_capital_deployment", data[key], "number")
     return await get_risk_settings()
+
+
+@router.get("/risk/scan-settings")
+async def scan_settings():
+    """Get scan settings (max_strategies, max_tickers_per_strategy)."""
+    return await get_scan_settings()
+
+
+@router.post("/risk/scan-settings")
+async def save_scan_settings(data: dict):
+    """Update a single scan setting."""
+    for key in ("max_strategies", "max_tickers_per_strategy"):
+        if key in data:
+            await update_scan_setting(key, data[key])
+    return await get_scan_settings()
 
 
 @router.get("/risk/check")
@@ -229,9 +269,9 @@ async def risk_check():
 
 
 @router.get("/portfolio/promotion-history")
-async def promotion_history(limit: int = Query(50)):
+async def promotion_history(limit: int = Query(50), strategy_id: int | None = Query(None)):
     """Get auto-promotion history."""
-    return await get_promotion_history(limit)
+    return await get_promotion_history(limit, strategy_id)
 
 
 @router.post("/portfolio/rebalance")
@@ -255,9 +295,13 @@ async def rebalance_history(limit: int = Query(20)):
 
 
 @router.get("/paper-trading/performance")
-async def paper_trading_performance(period: str = Query("ALL", pattern="^(ALL|7D|30D|90D)$")):
+async def paper_trading_performance(
+    period: str = Query("ALL", pattern="^(ALL|7D|30D|90D)$"),
+    session_id: int = Query(default=None),
+):
     """Paper Trading Performance with period filter & equity curve."""
-    return await get_paper_performance(period)
+    sid = session_id or 1
+    return await get_paper_performance(period, session_id=sid)
 
 
 @router.get("/scheduler/status")
@@ -321,7 +365,273 @@ async def validation_dashboard():
     return await get_validation_dashboard()
 
 
-# ── P6: Integration Dashboard ────────────────────────────────────
+# ── P5: Automation Pipeline ──────────────────────────────────────
+
+
+@router.get("/pipeline/status")
+async def pipeline_status():
+    """Get automation pipeline status (steps, last run, config)."""
+    return await get_pipeline_status()
+
+
+@router.post("/pipeline/run")
+async def pipeline_run(data: dict):
+    """Run the full automation pipeline or from a specific step."""
+    start_step = data.get("start_step", "portfolio_backtest")
+    return await run_pipeline(start_step)
+
+
+@router.post("/pipeline/step/{step_name}")
+async def pipeline_run_step(step_name: str):
+    """Run a single pipeline step."""
+    return await run_single_step(step_name)
+
+
+@router.get("/pipeline/logs")
+async def pipeline_logs(limit: int = 50):
+    """Get pipeline execution history."""
+    return await get_pipeline_logs(limit)
+
+
+@router.get("/pipeline/config")
+async def pipeline_config_get():
+    """Get pipeline configuration."""
+    return await get_pipeline_config()
+
+
+@router.post("/pipeline/config")
+async def pipeline_config_save(data: dict):
+    """Update pipeline configuration."""
+    for key in data:
+        await update_pipeline_config(key, data[key])
+    return await get_pipeline_config()
+
+
+# ── P6: Production & Lifecycle ────────────────────────────────────
+
+
+@router.get("/production/dashboard")
+async def production_dashboard():
+    """Get production dashboard with survivors, candidates, production strategies."""
+    return await get_production_dashboard()
+
+
+@router.get("/production/strategies/{stage}")
+async def production_strategies_by_stage(stage: str):
+    """Get strategies by lifecycle stage (survivor, production_candidate, production, etc.)."""
+    return await get_strategies_by_stage(stage)
+
+
+@router.post("/production/promote")
+async def production_promote(data: dict):
+    """Promote a strategy to the next lifecycle stage."""
+    sid = data.get("strategy_id")
+    if not sid:
+        raise HTTPException(400, "strategy_id required")
+    reason = data.get("reason", "Manual promotion")
+    return await promote_strategy(sid, reason)
+
+
+@router.post("/production/demote")
+async def production_demote(data: dict):
+    """Demote a strategy to a previous lifecycle stage."""
+    sid = data.get("strategy_id")
+    if not sid:
+        raise HTTPException(400, "strategy_id required")
+    rows = await execute_query(
+        "SELECT 1 FROM portfolio_strategy WHERE strategy_id = :1", [sid]
+    )
+    if not rows:
+        raise HTTPException(404, "Strategy not found")
+    target = data.get("target", "failed")
+    reason = data.get("reason", "Manual demotion")
+    return await demote_strategy(sid, target, reason)
+
+
+@router.get("/production/survivor-pool")
+async def production_survivor_pool():
+    """Get active survivor pool with scores."""
+    return await get_survivor_pool()
+
+
+@router.get("/production/survivor-score/{strategy_id}")
+async def production_survivor_score(strategy_id: int):
+    """Calculate and return survivor score for a strategy."""
+    score = await calculate_survivor_score(strategy_id)
+    return score
+
+
+@router.get("/production/survivor-score/{strategy_id}/history")
+async def production_survivor_score_history(strategy_id: int, limit: int = 30):
+    """Get survivor score history for a strategy."""
+    return await get_survivor_score_history(strategy_id, limit)
+
+
+@router.get("/production/evaluate-survivors")
+async def production_evaluate_survivors():
+    """Run survivor evaluation on all paper_trading strategies."""
+    return await evaluate_survivors()
+
+
+@router.get("/production/evaluate-candidates")
+async def production_evaluate_candidates():
+    """Evaluate survivor pool and promote to production candidates."""
+    return await evaluate_production_candidates()
+
+
+@router.get("/production/auto-replace")
+async def production_auto_replace():
+    """Auto-replace production strategies with better candidates."""
+    return await auto_replace_production()
+
+
+@router.post("/production/promote-to-production")
+async def production_promote_to_production(data: dict):
+    """Manually promote a survivor to production."""
+    sid = data.get("strategy_id")
+    if not sid:
+        raise HTTPException(400, "strategy_id required")
+    reason = data.get("reason", "Manual promotion to production")
+    return await promote_to_production(sid, reason)
+
+
+@router.post("/production/rollback")
+async def production_rollback(data: dict):
+    """Rollback a production strategy to survivor."""
+    sid = data.get("strategy_id")
+    if not sid:
+        raise HTTPException(400, "strategy_id required")
+    rows = await execute_query(
+        "SELECT 1 FROM portfolio_strategy WHERE strategy_id = :1", [sid]
+    )
+    if not rows:
+        raise HTTPException(404, "Strategy not found")
+    target = data.get("target", "survivor")
+    reason = data.get("reason", "Manual rollback")
+    return await rollback_production(sid, target, reason)
+
+
+@router.get("/production/history")
+async def production_history(limit: int = 50):
+    """Get production promotion/demotion history."""
+    return await get_production_history(limit)
+
+
+@router.get("/production/weights")
+async def production_weights():
+    """Get current survivor score weights."""
+    return await get_survivor_weights()
+
+
+@router.post("/production/weights")
+async def production_weights_save(data: dict):
+    """Update survivor score weights."""
+    await update_survivor_weights(data)
+    return await get_survivor_weights()
+
+
+# ── P7: Shadow Trading ───────────────────────────────────────────
+
+
+@router.post("/shadow/session/start")
+async def shadow_session_start(data: dict):
+    """Start a shadow trading session for a strategy."""
+    sid = data.get("strategy_id")
+    if not sid:
+        raise HTTPException(400, "strategy_id required")
+    return await create_shadow_session(sid)
+
+
+@router.post("/shadow/session/{session_id}/stop")
+async def shadow_session_stop(session_id: int):
+    """Stop a shadow trading session."""
+    return await stop_shadow_session(session_id)
+
+
+@router.get("/shadow/sessions")
+async def shadow_sessions_all(status: str = ""):
+    """List all shadow trading sessions."""
+    if status:
+        return await list_shadow_sessions(status)
+    return await list_shadow_sessions()
+
+
+@router.get("/shadow/session/{session_id}")
+async def shadow_session_detail(session_id: int):
+    """Get shadow session details."""
+    result = await get_shadow_session(session_id)
+    if not result:
+        raise HTTPException(404, "Session not found")
+    return result
+
+
+@router.get("/shadow/session/{session_id}/orders")
+async def shadow_session_orders(session_id: int, limit: int = 50):
+    """Get orders for a shadow session."""
+    return await get_shadow_orders(session_id, limit)
+
+
+@router.get("/shadow/session/{session_id}/positions")
+async def shadow_session_positions(session_id: int):
+    """Get positions for a shadow session."""
+    return await get_shadow_positions(session_id)
+
+
+@router.post("/shadow/order")
+async def shadow_order_create(data: dict):
+    """Execute a shadow order (no KIS API call)."""
+    required = ["session_id", "ticker", "direction", "price", "quantity"]
+    for k in required:
+        if k not in data:
+            raise HTTPException(400, f"{k} required")
+    return await execute_shadow_order(
+        session_id=data["session_id"],
+        ticker=data["ticker"],
+        direction=data["direction"],
+        price=data["price"],
+        quantity=data["quantity"],
+        strategy_id=data.get("strategy_id", 0),
+        order_type=data.get("order_type", "market"),
+    )
+
+
+@router.post("/shadow/session/{session_id}/evaluate")
+async def shadow_session_evaluate(session_id: int):
+    """Evaluate a shadow session for production promotion."""
+    return await evaluate_shadow_for_production(session_id)
+
+
+@router.get("/shadow/dashboard")
+async def shadow_dashboard():
+    """Get shadow trading dashboard summary."""
+    return await get_shadow_dashboard()
+
+
+@router.get("/production/lock")
+async def production_lock_status():
+    """Get production lock status."""
+    return await get_production_lock_status()
+
+
+@router.post("/production/lock/acquire")
+async def production_lock_acquire(data: dict):
+    """Acquire production lock."""
+    sid = data.get("strategy_id", 0)
+    reason = data.get("reason", "Manual lock")
+    ok = await acquire_production_lock(sid, reason)
+    if not ok:
+        raise HTTPException(409, "Production lock already acquired")
+    return {"status": "SUCCESS", "message": "Lock acquired"}
+
+
+@router.post("/production/lock/release")
+async def production_lock_release():
+    """Release production lock."""
+    await release_production_lock()
+    return {"status": "SUCCESS", "message": "Lock released"}
+
+
+# ── P8: Integration Dashboard ────────────────────────────────────
 
 
 @router.get("/dashboard")

@@ -3,7 +3,7 @@ import { useTrades } from '../../hooks/useTrades'
 import { Card } from '../common/Card'
 import { CardSkeleton } from '../common/Skeleton'
 import { TradeDrawer } from './TradeDrawer'
-import { formatPct } from '../../utils/format'
+import { formatPct, formatStockDisplay } from '../../utils/format'
 import { TrendingUp, TrendingDown, ExternalLink } from 'lucide-react'
 
 export function TradeHistory() {
@@ -52,7 +52,7 @@ export function TradeHistory() {
                   <div className="flex-1 min-w-0 text-left">
                     <div className="flex items-center gap-2">
                       <span className="text-sm font-medium text-text-primary truncate">
-                        {t.name || t.ticker || '거래'}
+                        {formatStockDisplay(t.name, t.ticker)}
                       </span>
                       <span className={`text-[10px] font-medium px-1.5 py-0.25 rounded ${isBuy ? 'bg-primary/15 text-primary' : 'bg-danger/15 text-danger'}`}>
                         {isBuy ? 'B' : 'S'}

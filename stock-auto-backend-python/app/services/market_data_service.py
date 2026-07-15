@@ -418,8 +418,27 @@ class MarketDataService:
                 })
             return result
         except Exception as e:
-            logger.warning("pykrx master fetch failed for %s: %s", market, e)
-            return []
+            logger.warning("pykrx master fetch failed for %s: %s, falling back to kospi_stocks", market, e)
+        try:
+            from app.database import acquire_conn
+            import asyncio
+            conn = asyncio.run(acquire_conn())
+            cur = conn.cursor()
+            mkt = 'KOSPI' if market in ('KOSPI',) else 'KOSDAQ'
+            cur.execute("SELECT ticker, name FROM kospi_stocks WHERE ticker NOT LIKE 'A%' ORDER BY ticker")
+            result = []
+            for ticker, name in cur.fetchall():
+                if market == 'ETF':
+                    continue
+                result.append({"code": ticker, "name": name, "market": mkt, "listing_date": None})
+            cur.close()
+            conn.close()
+            if result:
+                logger.info("kospi_stocks fallback: %d stocks for market %s", len(result), market)
+                return result
+        except Exception as e2:
+            logger.error("kospi_stocks fallback also failed: %s", e2)
+        return []
 
     # ── Daily Sync ───────────────────────────────────────────────
 
@@ -471,11 +490,47 @@ class MarketDataService:
             logger.debug("pykrx daily fetch failed for %s: %s", code, e)
             df = self._fetch_daily_yfinance(code, last_date)
 
-        if df is None or df.empty:
-            return []
-        rows = self._df_to_daily_rows(df, code)
-        del df
-        return rows
+        if df is not None and not df.empty:
+            rows = self._df_to_daily_rows(df, code)
+            del df
+            return rows
+
+        try:
+            from app.database import acquire_conn
+            import asyncio
+            conn = asyncio.run(acquire_conn())
+            cur = conn.cursor()
+            if last_date:
+                cur.execute(
+                    "SELECT trade_date, open_price, high_price, low_price, close_price, volume FROM stock_daily_prices WHERE ticker = :1 AND trade_date > :2 ORDER BY trade_date",
+                    [code, last_date]
+                )
+            else:
+                cur.execute(
+                    "SELECT trade_date, open_price, high_price, low_price, close_price, volume FROM stock_daily_prices WHERE ticker = :1 ORDER BY trade_date",
+                    [code]
+                )
+            rows = []
+            for td, op, hi, lo, cl, vol in cur.fetchall():
+                rows.append({
+                    "code": code,
+                    "trade_date": td,
+                    "open_price": float(op) if op else 0,
+                    "high_price": float(hi) if hi else 0,
+                    "low_price": float(lo) if lo else 0,
+                    "close_price": float(cl) if cl else 0,
+                    "volume": int(vol) if vol else 0,
+                    "trading_value": 0,
+                    "market_cap": 0,
+                })
+            cur.close()
+            conn.close()
+            if rows:
+                logger.info("stock_daily_prices fallback: %d rows for %s", len(rows), code)
+            return rows
+        except Exception as e2:
+            logger.error("stock_daily_prices fallback failed for %s: %s", code, e2)
+        return []
 
     def _fetch_daily_yfinance(self, code: str, last_date: Optional[date]) -> Optional["pandas.DataFrame"]:
         try:

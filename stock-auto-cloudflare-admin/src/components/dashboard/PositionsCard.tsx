@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { Card } from '../common/Card'
 import { CardSkeleton } from '../common/Skeleton'
-import { formatKRW, formatPct } from '../../utils/format'
+import { formatKRW, formatPct, formatStockDisplay } from '../../utils/format'
 import { api, PositionEntry } from '../../utils/api'
 
 export function PositionsCard() {
@@ -41,7 +41,7 @@ export function PositionsCard() {
               className="flex items-center gap-3 py-2.5 px-3 rounded-xl bg-surface border border-surface-border"
             >
               <div className="flex-1 min-w-0">
-                <div className="text-sm font-medium text-text-primary truncate">{p.name || p.ticker}</div>
+                <div className="text-sm font-medium text-text-primary truncate">{formatStockDisplay(p.name, p.ticker)}</div>
                 <div className="text-[11px] text-text-muted font-mono tabular-nums">
                   {p.quantity}주 @ {formatKRW(p.entry_price)}
                 </div>

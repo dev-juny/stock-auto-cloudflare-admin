@@ -887,7 +887,7 @@ function loadActivePositions() {
         var profitClass = p.profit_pct >= 0 ? 'pos-profit' : 'pos-loss'
         var profitStr = p.profit_pct ? (p.profit_pct * 100).toFixed(2) + '%' : '-'
         return '<tr>' +
-          '<td>' + p.ticker + '</td>' +
+          '<td>' + (p.name ? p.name + ' (' + p.ticker + ')' : p.ticker) + '</td>' +
           '<td>' + (p.entry_price ? p.entry_price.toLocaleString() : '-') + '</td>' +
           '<td>' + (p.current_price ? p.current_price.toLocaleString() : '-') + '</td>' +
           '<td class="' + profitClass + '">' + profitStr + '</td>' +
@@ -1515,7 +1515,7 @@ function loadTradeLogs() {
         var actCls = t.action === 'SELL' ? 'scan-negative' : 'scan-positive'
         return '<tr>' +
           '<td>' + (t.traded_at || '') + '</td>' +
-          '<td>' + t.ticker + '</td>' +
+          '<td>' + (t.name ? t.name + ' (' + t.ticker + ')' : t.ticker) + '</td>' +
           '<td class="' + actCls + '">' + t.action + '</td>' +
           '<td>' + (t.price ? t.price.toLocaleString() : '') + '</td>' +
           '<td>' + (t.quantity || '') + '</td>' +

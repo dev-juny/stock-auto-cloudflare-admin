@@ -117,7 +117,7 @@ export default function StrategiesPage() {
 
       const [risk, promos, val, ready] = await Promise.allSettled([
         api.get<RiskCheckResult>('/api/risk/check').catch(() => null),
-        api.get<{ items: PromotionEntry[]; total: number }>('/api/portfolio/promotion-history?limit=5').catch(() => null),
+        api.get<{ items: PromotionEntry[]; total: number }>(`/api/portfolio/promotion-history?limit=5&strategy_id=${strategyId}`).catch(() => null),
         api.get<ValidationStatus>('/api/validation/status').catch(() => null),
         api.get<LiveTradingReadiness>('/api/live-trading/readiness').catch(() => null),
       ])
@@ -525,7 +525,9 @@ function PromotionSection({ data, loading, onRefresh }: { data: PromotionEntry[]
 function ValidationSection({ data: data_, loading, onRefresh }: { data: ValidationStatus | null; loading: boolean; onRefresh: () => void }) {
   const { loading: actionLoading, execute } = useAction()
   if (loading) return <SectionLoading />
-  if (!data_) return <SectionError message="Validation mode inactive" onRetry={onRefresh} />
+  if (!data_) return (
+    <SectionError message="Validation mode inactive — Start validation to evaluate strategy performance over 30-day paper trading" onRetry={onRefresh} />
+  )
 
   const data = data_
 
@@ -545,10 +547,12 @@ function ValidationSection({ data: data_, loading, onRefresh }: { data: Validati
   return (
     <div className="space-y-3">
       <div className={`flex items-center gap-2 p-3 rounded-xl text-xs font-medium ${
-        data.is_active ? 'bg-blue-500/10 text-blue-400' : 'bg-surface-border/50 text-text-muted'
+        data.is_active ? 'bg-blue-500/10 text-blue-400' : 'bg-amber-500/10 text-amber-400'
       }`}>
         <Activity size={14} />
-        {data.is_active ? `Active — Day ${Math.min(daysElapsed + 1, 30)}/30` : 'Inactive'}
+        {data.is_active
+          ? `Active — Day ${Math.min(daysElapsed + 1, 30)}/30`
+          : 'Inactive — Start 30-day validation to collect readiness data'}
         {data.started_at && <span className="text-text-muted">since {formatKST(data.started_at)}</span>}
       </div>
 
@@ -579,7 +583,7 @@ function ValidationSection({ data: data_, loading, onRefresh }: { data: Validati
 
       <button onClick={toggleValidation} disabled={actionLoading}
         className="w-full text-xs px-3 py-2 rounded-lg bg-primary text-white font-medium hover:bg-primary/90 transition-colors disabled:opacity-50">
-        {actionLoading ? 'Processing...' : data.is_active ? 'Stop Validation' : 'Start Validation'}
+        {actionLoading ? 'Processing...' : data.is_active ? 'Stop Validation' : 'Start 30-Day Validation'}
       </button>
     </div>
   )

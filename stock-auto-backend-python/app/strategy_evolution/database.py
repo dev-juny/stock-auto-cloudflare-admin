@@ -111,6 +111,12 @@ async def ensure_evolution_tables():
         CREATE INDEX IF NOT EXISTS idx_perf_strategy_id ON strategy_performance(strategy_id)
         """,
         """
+        CREATE INDEX IF NOT EXISTS idx_perf_fitness ON strategy_performance(fitness_score DESC, total_return DESC, win_rate DESC, total_trades DESC)
+        """,
+        """
+        CREATE INDEX IF NOT EXISTS idx_perf_filter ON strategy_performance(strategy_id, generation DESC, fitness_score DESC, total_return DESC)
+        """,
+        """
         CREATE TABLE IF NOT EXISTS evolution_status (
             id NUMBER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
             is_running CHAR(1) DEFAULT 'N',
@@ -167,7 +173,7 @@ async def save_strategy(s: EvolutionStrategy) -> int:
         conn.close()
 
 
-async def get_strategies(generation: Optional[int] = None, alive_only: bool = True) -> list[EvolutionStrategy]:
+async def get_strategies(generation: Optional[int] = None, alive_only: bool = True, limit: int = 200, offset: int = 0) -> list[EvolutionStrategy]:
     sql = """SELECT sp.id, sp.name, sp.generation, sp.version, sp.parent_id, sp.params_json,
                     sp.indicators_json, sp.is_alive, sp.is_elite, sp.created_at, sp.last_test_at,
                     pf.total_return, pf.win_rate, pf.max_drawdown, pf.profit_factor, pf.total_trades, pf.fitness_score
@@ -186,6 +192,8 @@ async def get_strategies(generation: Optional[int] = None, alive_only: bool = Tr
         sql += " AND sp.generation=:1"
         binds.append(generation)
     sql += " ORDER BY sp.generation DESC, sp.id DESC"
+    sql += " OFFSET :offset ROWS FETCH NEXT :limit ROWS ONLY"
+    binds.extend([offset, limit])
     rows = await execute_query(sql, binds if binds else None)
     return [_row_to_strategy(r) for r in rows]
 
@@ -352,10 +360,10 @@ def _row_to_strategy(r: tuple) -> EvolutionStrategy:
 
 async def save_performance(fs: FitnessScore):
     await execute_non_query(
-        """INSERT INTO strategy_performance (strategy_id, generation, total_return, win_rate, max_drawdown, profit_factor, total_trades, fitness_score)
-           VALUES (:1,:2,:3,:4,:5,:6,:7,:8)""",
+        """INSERT INTO strategy_performance (strategy_id, generation, total_return, win_rate, max_drawdown, profit_factor, sharpe_ratio, cagr, total_trades, fitness_score)
+           VALUES (:1,:2,:3,:4,:5,:6,:7,:8,:9,:10)""",
         [fs.strategy_id, fs.generation, fs.total_return, fs.win_rate, fs.max_drawdown,
-         fs.profit_factor, fs.total_trades, fs.fitness]
+         fs.profit_factor, fs.sharpe_ratio, fs.cagr, fs.total_trades, fs.fitness]
     )
 
 

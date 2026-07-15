@@ -1,6 +1,6 @@
 import { X, TrendingUp, TrendingDown } from 'lucide-react'
 import { TradeEntry } from '../../utils/api'
-import { formatKRW, formatPct, formatTime } from '../../utils/format'
+import { formatKRW, formatPct, formatTime, formatStockDisplay } from '../../utils/format'
 
 interface TradeDrawerProps {
   trades: TradeEntry[]
@@ -56,7 +56,7 @@ export function TradeDrawer({ trades, open, onClose }: TradeDrawerProps) {
                   return (
                     <tr key={t.id || i} className="border-b border-surface-border hover:bg-surface-hover/40">
                       <td className="px-4 py-2.5">
-                        <div className="text-text-primary font-medium">{t.name || t.ticker || '-'}</div>
+                        <div className="text-text-primary font-medium">{formatStockDisplay(t.name, t.ticker)}</div>
                       </td>
                       <td className={`px-2 py-2.5 text-right font-medium ${isBuy ? 'text-primary' : 'text-danger'}`}>
                         {isBuy ? '매수' : '매도'}

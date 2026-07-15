@@ -1,8 +1,22 @@
 from __future__ import annotations
 
+import logging
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
+
+_logger = logging.getLogger(__name__)
+
+_DEFAULT_JWT_SECRET = "development-secret-change-in-production"
+
+
+def _check_jwt_secret(v: str) -> str:
+    if v == _DEFAULT_JWT_SECRET:
+        _logger.critical(
+            "JWT_SECRET is not set! Using insecure default. "
+            "Set the JWT_SECRET environment variable immediately!"
+        )
+    return v
 
 
 @dataclass
@@ -24,7 +38,11 @@ class Settings:
 
     max_concurrent_positions: int = int(os.getenv("MAX_CONCURRENT_POSITIONS", "10"))
 
-    jwt_secret: str = os.getenv("JWT_SECRET", "development-secret-change-in-production")
+    jwt_secret: str = field(
+        default_factory=lambda: _check_jwt_secret(
+            os.getenv("JWT_SECRET", _DEFAULT_JWT_SECRET)
+        )
+    )
 
     allowed_origins: list[str] = field(default_factory=lambda: (
         os.getenv("ALLOWED_ORIGINS", "http://localhost:5173,http://localhost:3001,https://stock-admin.hjjun1006.workers.dev,https://stock-admin-production.hjjun1006.workers.dev").split(",")

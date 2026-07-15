@@ -1,7 +1,7 @@
 const pickBackend = (pathname: string, baseUrl: string, pythonUrl: string): string => {
   const base = baseUrl.replace(/\/+$/, '');
   const py = pythonUrl.replace(/\/+$/, '');
-  if (pathname.startsWith('/api/backtest') || pathname.startsWith('/api/positions') || pathname.startsWith('/api/evolution') || pathname.startsWith('/api/portfolio') || pathname.startsWith('/api/strategies') || pathname.startsWith('/api/paper-trading') || pathname.startsWith('/api/settings') || pathname.startsWith('/api/logs') || pathname.startsWith('/api/system') || pathname.startsWith('/api/market') || pathname.startsWith('/api/scheduler')) {
+  if (pathname.startsWith('/api/backtest') || pathname.startsWith('/api/positions') || pathname.startsWith('/api/evolution') || pathname.startsWith('/api/portfolio') || pathname.startsWith('/api/strategies') || pathname.startsWith('/api/paper-trading') || pathname.startsWith('/api/settings') || pathname.startsWith('/api/logs') || pathname.startsWith('/api/system') || pathname.startsWith('/api/market') || pathname.startsWith('/api/scheduler') || pathname.startsWith('/api/risk') || pathname.startsWith('/api/pipeline') || pathname.startsWith('/api/production') || pathname.startsWith('/api/shadow')) {
     return `${py}${pathname}`;
   }
   return `${base}${pathname}`;
@@ -18,10 +18,24 @@ export const handleApiProxy = async (
 
   const url = new URL(request.url);
 
+  const ALLOWED_ORIGINS = [
+    'https://stock-admin-production.hjjun1006.workers.dev',
+    'https://stock-admin.hjjun1006.workers.dev',
+    'http://localhost:3000',
+    'http://localhost:5173',
+  ];
+
+  const origin = request.headers.get('Origin') || '';
+  const corsHeaders: Record<string, string> = {};
+  if (ALLOWED_ORIGINS.includes(origin)) {
+    corsHeaders['Access-Control-Allow-Origin'] = origin;
+    corsHeaders['Vary'] = 'Origin';
+  }
+
   if (request.method === 'OPTIONS') {
     return new Response(null, {
       headers: {
-        'Access-Control-Allow-Origin': '*',
+        ...corsHeaders,
         'Access-Control-Allow-Methods': 'GET, POST, PUT, PATCH, DELETE, OPTIONS',
         'Access-Control-Allow-Headers': 'Content-Type, Authorization',
       },

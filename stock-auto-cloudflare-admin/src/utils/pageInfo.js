@@ -49,4 +49,9 @@ export const PAGE_INFO = {
         description: '백테스트, 진화, 피트니스 가중치 등 시스템 설정을 관리합니다.',
         helpKey: 'settings',
     },
+    production: {
+        title: '생산(Production)',
+        description: '최종 생존 전략의 생애주기를 관리하고 실거래 전략을 선정합니다.',
+        helpKey: 'production',
+    },
 };

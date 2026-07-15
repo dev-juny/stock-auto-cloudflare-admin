@@ -109,14 +109,7 @@ class StrategyEvaluator:
             'total_trades': trades,
         }
 
-    async def evaluate_strategy(self, strategy: EvolutionStrategy, universe: list[dict] | None = None) -> dict:
-        start_dt = date.today() - timedelta(days=180)
-        start_str = start_dt.isoformat()
-        end_str = date.today().isoformat()
-        sample = universe
-        if sample is None:
-            sample = await get_or_create_generation_universe(strategy.generation)
-
+    async def _evaluate_on_period(self, strategy: EvolutionStrategy, sample: list[dict], start_str: str, end_str: str) -> dict:
         loop = asyncio.get_event_loop()
         results = []
         for ticker in sample:
@@ -134,19 +127,13 @@ class StrategyEvaluator:
             )
             if result:
                 results.append(result)
-
         if not results:
-            return {
-                'total_return': 0, 'win_rate': 0, 'max_drawdown': 0,
-                'profit_factor': 0, 'total_trades': 0,
-            }
-
+            return {}
         avg_ret = np.mean([r['total_return'] for r in results])
         avg_wr = np.mean([r['win_rate'] for r in results])
         avg_mdd = np.mean([r['max_drawdown'] for r in results])
         avg_pf = np.mean([r['profit_factor'] for r in results])
         total_trades = sum(r['total_trades'] for r in results)
-
         return {
             'total_return': round(avg_ret, 4),
             'win_rate': round(avg_wr, 2),
@@ -154,6 +141,43 @@ class StrategyEvaluator:
             'profit_factor': round(avg_pf, 4),
             'total_trades': total_trades,
         }
+
+    async def evaluate_strategy(self, strategy: EvolutionStrategy, universe: list[dict] | None = None) -> dict:
+        end_str = date.today().isoformat()
+
+        sample = universe
+        if sample is None:
+            sample = await get_or_create_generation_universe(strategy.generation)
+
+        # Full period evaluation (last 180 days)
+        full_start = (date.today() - timedelta(days=180)).isoformat()
+        full_result = await self._evaluate_on_period(strategy, sample, full_start, end_str)
+
+        # Walk-forward: train on first 70%, validate on last 30%
+        train_end = (date.today() - timedelta(days=54)).isoformat()
+        val_start = (date.today() - timedelta(days=160)).isoformat()
+        train_result = await self._evaluate_on_period(strategy, sample, full_start, train_end)
+        val_result = await self._evaluate_on_period(strategy, sample, val_start, end_str)
+
+        if not full_result:
+            return {
+                'total_return': 0, 'win_rate': 0, 'max_drawdown': 0,
+                'profit_factor': 0, 'total_trades': 0,
+                'walk_forward_stability': 0, 'train_return': 0, 'val_return': 0,
+            }
+
+        # Calculate walk-forward stability
+        train_ret = abs(train_result.get('total_return', 0)) if train_result else 0
+        val_ret = abs(val_result.get('total_return', 0)) if val_result else 0
+        wf_stability = 1.0
+        if train_ret > 0 and val_result:
+            ratio = val_ret / max(train_ret, 0.01)
+            wf_stability = min(ratio, 2.0) / 2.0  # 1.0 if equal, drops if val underperforms
+
+        full_result['walk_forward_stability'] = round(wf_stability, 4)
+        full_result['train_return'] = round(train_result.get('total_return', 0), 4) if train_result else 0
+        full_result['val_return'] = round(val_result.get('total_return', 0), 4) if val_result else 0
+        return full_result
 
     async def evaluate_strategy_for_recalc(self, strategy_id: int, generation: int, universe: list[dict]) -> dict:
         """Re-evaluate a single strategy by ID (used for batch recalc)."""
@@ -187,10 +211,14 @@ class StrategyEvaluator:
             strategy.max_drawdown = perf['max_drawdown']
             strategy.profit_factor = perf['profit_factor']
             strategy.total_trades = perf['total_trades']
+            strategy.walk_forward_stability = perf.get('walk_forward_stability', 1.0)
+            strategy.train_return = perf.get('train_return', 0)
+            strategy.val_return = perf.get('val_return', 0)
 
         scores = self.fitness.calculate_batch(strategies)
         for fs in scores:
             await save_performance(fs)
             await log_history(fs.strategy_id, "EVALUATED", details={
-                "return": fs.total_return, "winrate": fs.win_rate, "fitness": fs.fitness
+                "return": fs.total_return, "winrate": fs.win_rate, "fitness": fs.fitness,
+                "wf_stability": fs.walk_forward_stability,
             })

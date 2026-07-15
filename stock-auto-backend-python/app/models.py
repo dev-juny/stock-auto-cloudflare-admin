@@ -81,6 +81,7 @@ class PositionSyncRequest(BaseModel):
 class PositionResponse(BaseModel):
     id: int
     ticker: str
+    name: Optional[str] = None
     entry_date: str
     entry_price: float
     quantity: int
@@ -94,6 +95,7 @@ class PositionResponse(BaseModel):
 class TradeLogResponse(BaseModel):
     id: int
     ticker: str
+    name: Optional[str] = None
     action: str
     price: Optional[float] = None
     quantity: Optional[int] = None

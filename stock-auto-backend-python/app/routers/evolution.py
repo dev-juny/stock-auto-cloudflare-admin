@@ -44,8 +44,12 @@ async def get_status() -> EvolutionStatus:
 
 
 @router.get("/strategies")
-async def list_strategies(generation: int | None = None) -> list[EvolutionStrategy]:
-    return await get_orch().get_strategies(generation=generation)
+async def list_strategies(
+    generation: int | None = None,
+    offset: int = Query(0, ge=0),
+    limit: int = Query(200, ge=1, le=1000),
+) -> list[EvolutionStrategy]:
+    return await get_orch().get_strategies(generation=generation, limit=limit, offset=offset)
 
 
 @router.get("/strategies/{strategy_id}")
@@ -108,7 +112,28 @@ async def get_generation_history(generation_id: int) -> dict:
     gens = await get_orch().get_generations()
     gen_info = next((g for g in gens if g.generation == generation_id), None)
     if not gen_info:
-        raise HTTPException(404, "Generation not found")
+        rows = await execute_query(
+            """            SELECT generation, population_size, elite_count, avg_fitness, best_fitness,
+                      avg_return, avg_winrate, avg_mdd
+               FROM strategy_generation WHERE generation = :1""",
+            [generation_id],
+        )
+        if not rows:
+            raise HTTPException(404, "Generation not found")
+        row = rows[0]
+        universe = await get_generation_universe(generation_id)
+        return {
+            "generation": int(row[0]),
+            "population_size": int(row[1]) if row[1] else 0,
+            "elite_count": int(row[2]) if row[2] else 0,
+            "avg_fitness": float(row[3]) if row[3] else 0,
+            "best_fitness": float(row[4]) if row[4] else 0,
+            "avg_return": float(row[5]) if row[5] else 0,
+            "avg_winrate": float(row[6]) if row[6] else 0,
+            "avg_mdd": float(row[7]) if row[7] else 0,
+            "total_return": float(row[5]) if row[5] else 0,
+            "evaluation_universe": universe,
+        }
     universe = await get_generation_universe(generation_id)
     return {
         "generation": generation_id,

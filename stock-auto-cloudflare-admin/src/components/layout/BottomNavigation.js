@@ -1,5 +1,5 @@
 import { jsx as _jsx, jsxs as _jsxs } from "react/jsx-runtime";
-import { LayoutDashboard, PieChart, CandlestickChart, ScrollText, Settings, Zap, Timer, PlayCircle, Shield, ClipboardCheck } from 'lucide-react';
+import { LayoutDashboard, PieChart, CandlestickChart, ScrollText, Settings, Zap, Timer, PlayCircle, Shield, ClipboardCheck, Award } from 'lucide-react';
 const tabs = [
     { id: 'dashboard', label: '대시보드', icon: LayoutDashboard },
     { id: 'portfolio', label: '포트폴리오', icon: PieChart },
@@ -8,6 +8,7 @@ const tabs = [
     { id: 'paper-trading', label: '모의투자', icon: PlayCircle },
     { id: 'validation', label: '검증', icon: ClipboardCheck },
     { id: 'risk', label: '리스크', icon: Shield },
+    { id: 'production', label: '생산', icon: Award },
     { id: 'logs', label: '로그', icon: ScrollText },
     { id: 'settings', label: '설정', icon: Settings },
     { id: 'scheduler', label: '스케줄러', icon: Timer },

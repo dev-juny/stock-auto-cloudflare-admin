@@ -181,6 +181,7 @@ async def _ensure_tables() -> None:
         alter_statements = [
             "ALTER TABLE saved_configs ADD (portfolio_data CLOB)",
             "ALTER TABLE scheduler_config ADD (breadth_upper NUMBER(5,2) DEFAULT 0.70)",
+            "ALTER TABLE portfolio_backtest ADD (profit_factor NUMBER(10,4) DEFAULT 0)",
         ]
         for alt in alter_statements:
             try:
@@ -193,6 +194,92 @@ async def _ensure_tables() -> None:
         conn.close()
     from app.services.service_db import ensure_service_tables
     await ensure_service_tables()
+    await _ensure_paper_trading_tables()
+
+
+async def _ensure_paper_trading_tables():
+    # ── Check if migration already done ──
+    try:
+        rows = await execute_query("SELECT COUNT(*) FROM paper_sessions")
+        if rows and rows[0][0] > 0:
+            print("[INFO] Paper trading tables already migrated")
+            return
+    except Exception:
+        pass
+
+    # ── Use a fresh dedicated connection (not from pool) to avoid ORA-12838 ──
+    from app.config import settings as cfg
+
+    def _run():
+        conn = oracledb.connect(
+            user=cfg.db_user,
+            password=cfg.db_password,
+            dsn=cfg.oracle_dsn,
+        )
+        try:
+            cur = conn.cursor()
+            # Create table
+            cur.execute("SELECT COUNT(*) FROM user_tables WHERE table_name = 'PAPER_SESSIONS'")
+            if cur.fetchone()[0] == 0:
+                cur.execute("""
+                    CREATE TABLE paper_sessions (
+                        id NUMBER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+                        name VARCHAR2(200),
+                        initial_capital NUMBER(15,2) DEFAULT 10000000,
+                        max_positions NUMBER(5) DEFAULT 5,
+                        position_size NUMBER(15,2) DEFAULT 500000,
+                        commission_pct NUMBER(5,4) DEFAULT 0,
+                        slippage_pct NUMBER(5,4) DEFAULT 0,
+                        tax_pct NUMBER(5,4) DEFAULT 0,
+                        auto_mode CHAR(1) DEFAULT 'N',
+                        status VARCHAR2(20) DEFAULT 'active',
+                        final_cash NUMBER(15,2),
+                        final_invested NUMBER(15,2),
+                        final_total NUMBER(15,2),
+                        started_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        ended_at TIMESTAMP,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                """)
+                print("[INFO] Created paper_sessions table")
+            for stmt in [
+                "ALTER TABLE paper_positions ADD (session_id NUMBER DEFAULT 1 NOT NULL)",
+                "ALTER TABLE paper_trades ADD (session_id NUMBER DEFAULT 1 NOT NULL)",
+                "ALTER TABLE paper_positions ADD (highest_price NUMBER(15,2))",
+            ]:
+                try:
+                    cur.execute(stmt)
+                except Exception:
+                    pass
+            conn.commit()
+            # DML in same connection
+            cur.execute("SELECT COUNT(*) FROM paper_sessions")
+            if cur.fetchone()[0] == 0:
+                cur.execute(
+                    """INSERT INTO paper_sessions (name, initial_capital, status, started_at)
+                       VALUES ('Default Session', 10000000, 'active', CURRENT_TIMESTAMP)"""
+                )
+                conn.commit()
+                cur.execute("SELECT MAX(id) FROM paper_sessions")
+                default_session_id = cur.fetchone()[0] or 1
+                cur.execute(
+                    "UPDATE paper_positions SET session_id = :1 WHERE session_id IS NULL OR session_id = 0",
+                    [default_session_id],
+                )
+                cur.execute(
+                    "UPDATE paper_trades SET session_id = :1 WHERE session_id IS NULL OR session_id = 0",
+                    [default_session_id],
+                )
+                cur.execute(
+                    "UPDATE paper_positions SET highest_price = entry_price WHERE highest_price IS NULL AND status = 'open'",
+                )
+                conn.commit()
+        finally:
+            conn.close()
+
+    loop = asyncio.get_running_loop()
+    await loop.run_in_executor(None, _run)
+    print("[INFO] Paper trading tables ensured")
 
 
 def _convert_lobs(row: tuple) -> tuple:

@@ -6,3 +6,8 @@ dist/
 __pycache__/
 
 stock-test/
+
+# Sensitive scripts (may contain credentials)
+fix_db*.py
+gen_token*.py
+check_cols.py

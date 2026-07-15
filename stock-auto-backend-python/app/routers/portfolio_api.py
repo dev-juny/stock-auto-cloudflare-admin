@@ -157,6 +157,7 @@ async def run_portfolio_backtest(data: dict):
     slippage_pct = float(data.get("slippage_pct", 0.05)) / 100  # user enters as %, convert to decimal
     commission_pct = float(data.get("commission_pct", 0.015)) / 100
     tax_pct = float(data.get("tax_pct", 0.18)) / 100
+    universe_filter = data.get("universe", "ALL")
 
     # Determine date range
     end_date = date.today()
@@ -203,10 +204,18 @@ async def run_portfolio_backtest(data: dict):
                     strategy_params_map[sid] = {}
             else:
                 strategy_params_map[sid] = {}
+        market_clause = ""
+        binds = [gen]
+        if universe_filter == "KOSPI":
+            market_clause = "AND market = :2"
+            binds.append("KOSPI")
+        elif universe_filter == "KOSDAQ":
+            market_clause = "AND market = :2"
+            binds.append("KOSDAQ")
         universe_stocks = await execute_query(
-            """SELECT ticker FROM evolution_evaluation_universe
-               WHERE generation = :1 ORDER BY sample_order ASC""",
-            [gen],
+            f"""SELECT ticker FROM evolution_evaluation_universe
+                WHERE generation = :1 {market_clause} ORDER BY sample_order ASC""",
+            binds,
         )
         weight = alloc / max(len(universe_stocks), 1)
         for u in universe_stocks:
@@ -219,7 +228,7 @@ async def run_portfolio_backtest(data: dict):
     # Load benchmark data (KOSPI)
     benchmark_prices: dict[str, float] = {}
     benchmark_row = await execute_query(
-        "SELECT close_price FROM index_daily WHERE index_code = 'KOSPI' AND trade_date >= :1 AND trade_date <= :2 ORDER BY trade_date ASC",
+        "SELECT close_price FROM index_daily WHERE index_code = 'KOSPI' AND trade_date >= TO_DATE(:1, 'YYYY-MM-DD') AND trade_date <= TO_DATE(:2, 'YYYY-MM-DD') ORDER BY trade_date ASC",
         [start_date.isoformat(), end_date.isoformat()],
     )
     if benchmark_row:
@@ -235,7 +244,7 @@ async def run_portfolio_backtest(data: dict):
     kospi_prices = benchmark_prices
     kosdaq_prices = {}
     kosdaq_row = await execute_query(
-        "SELECT close_price FROM index_daily WHERE index_code = 'KOSDAQ' AND trade_date >= :1 AND trade_date <= :2 ORDER BY trade_date ASC FETCH FIRST 1 ROW ONLY",
+        "SELECT close_price FROM index_daily WHERE index_code = 'KOSDAQ' AND trade_date >= TO_DATE(:1, 'YYYY-MM-DD') AND trade_date <= TO_DATE(:2, 'YYYY-MM-DD') ORDER BY trade_date ASC FETCH FIRST 1 ROW ONLY",
         [start_date.isoformat(), end_date.isoformat()],
     )
     if kosdaq_row:

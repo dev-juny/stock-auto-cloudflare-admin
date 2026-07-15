@@ -1,4 +1,4 @@
-import { LayoutDashboard, PieChart, CandlestickChart, ScrollText, Settings, Zap, Timer, PlayCircle, Shield, ClipboardCheck } from 'lucide-react'
+import { LayoutDashboard, PieChart, CandlestickChart, ScrollText, Settings, Zap, Timer, PlayCircle, Shield, ClipboardCheck, Award } from 'lucide-react'
 
 interface Tab {
   id: string
@@ -14,6 +14,7 @@ const tabs: Tab[] = [
   { id: 'paper-trading', label: '모의투자', icon: PlayCircle },
   { id: 'validation', label: '검증', icon: ClipboardCheck },
   { id: 'risk', label: '리스크', icon: Shield },
+  { id: 'production', label: '생산', icon: Award },
   { id: 'logs', label: '로그', icon: ScrollText },
   { id: 'settings', label: '설정', icon: Settings },
   { id: 'scheduler', label: '스케줄러', icon: Timer },

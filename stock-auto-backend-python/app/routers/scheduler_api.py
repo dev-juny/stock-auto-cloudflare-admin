@@ -126,8 +126,20 @@ async def run_job(job_id: str):
     return {"status": "triggered", "job_id": job_id}
 
 
+@router.get("/jobs/paper-trading/status")
+async def paper_trading_scheduler_status():
+    from app.services.paper_trading_scheduler import get_paper_trading_scheduler_status as _pt_status
+    return {"status": _pt_status(), "job_id": "paper-trading"}
+
+
 @router.post("/jobs/{job_id}/pause")
 async def pause_job(job_id: str):
+    # Handle paper-trading as a custom scheduler (not APScheduler)
+    if job_id == "paper-trading":
+        from app.services.paper_trading_scheduler import pause_paper_trading_scheduler as _pause_pt
+        _pause_pt()
+        return {"status": "paused", "job_id": job_id}
+
     sched = get_scheduler()
     if not sched:
         raise HTTPException(503, "Scheduler not running")
@@ -149,6 +161,12 @@ async def pause_job(job_id: str):
 
 @router.post("/jobs/{job_id}/resume")
 async def resume_job(job_id: str):
+    # Handle paper-trading as a custom scheduler (not APScheduler)
+    if job_id == "paper-trading":
+        from app.services.paper_trading_scheduler import resume_paper_trading_scheduler as _resume_pt
+        _resume_pt()
+        return {"status": "resumed", "job_id": job_id}
+
     sched = get_scheduler()
     if not sched:
         raise HTTPException(503, "Scheduler not running")

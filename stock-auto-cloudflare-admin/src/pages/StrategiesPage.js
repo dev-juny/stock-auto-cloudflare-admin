@@ -77,7 +77,7 @@ export default function StrategiesPage() {
             setLoadingExtra(true);
             const [risk, promos, val, ready] = await Promise.allSettled([
                 api.get('/api/risk/check').catch(() => null),
-                api.get('/api/portfolio/promotion-history?limit=5').catch(() => null),
+                api.get(`/api/portfolio/promotion-history?limit=5&strategy_id=${strategyId}`).catch(() => null),
                 api.get('/api/validation/status').catch(() => null),
                 api.get('/api/live-trading/readiness').catch(() => null),
             ]);
@@ -169,7 +169,7 @@ function ValidationSection({ data: data_, loading, onRefresh }) {
     if (loading)
         return _jsx(SectionLoading, {});
     if (!data_)
-        return _jsx(SectionError, { message: "Validation mode inactive", onRetry: onRefresh });
+        return (_jsx(SectionError, { message: "Validation mode inactive \u2014 Start validation to evaluate strategy performance over 30-day paper trading", onRetry: onRefresh }));
     const data = data_;
     async function toggleValidation() {
         const endpoint = data.is_active ? '/api/validation/stop' : '/api/validation/start';
@@ -179,7 +179,9 @@ function ValidationSection({ data: data_, loading, onRefresh }) {
     const daysElapsed = data.started_at
         ? Math.floor((Date.now() - new Date(data.started_at).getTime()) / (1000 * 60 * 60 * 24))
         : 0;
-    return (_jsxs("div", { className: "space-y-3", children: [_jsxs("div", { className: `flex items-center gap-2 p-3 rounded-xl text-xs font-medium ${data.is_active ? 'bg-blue-500/10 text-blue-400' : 'bg-surface-border/50 text-text-muted'}`, children: [_jsx(Activity, { size: 14 }), data.is_active ? `Active — Day ${Math.min(daysElapsed + 1, 30)}/30` : 'Inactive', data.started_at && _jsxs("span", { className: "text-text-muted", children: ["since ", formatKST(data.started_at)] })] }), data.is_active && data.today && (_jsxs("div", { className: "grid grid-cols-3 gap-2 text-xs", children: [_jsxs("div", { className: "bg-surface rounded-xl p-3 text-center", children: [_jsx(Tooltip, { content: findGlossary('return')?.description ?? 'Total Return', children: _jsx("div", { className: "text-text-muted text-[10px]", children: "Total Return" }) }), _jsxs("div", { className: `font-bold ${data.today.cumulative_return >= 0 ? 'text-green-400' : 'text-red-400'}`, children: [data.today.cumulative_return >= 0 ? '+' : '', data.today.cumulative_return.toFixed(2), "%"] })] }), _jsxs("div", { className: "bg-surface rounded-xl p-3 text-center", children: [_jsx(Tooltip, { content: findGlossary('mdd')?.description ?? 'MDD', children: _jsx("div", { className: "text-text-muted text-[10px]", children: "MDD" }) }), _jsxs("div", { className: "font-bold text-red-400", children: [data.today.mdd.toFixed(1), "%"] })] }), _jsxs("div", { className: "bg-surface rounded-xl p-3 text-center", children: [_jsx(Tooltip, { content: findGlossary('winRate')?.description ?? 'Win Rate', children: _jsx("div", { className: "text-text-muted text-[10px]", children: "Win Rate" }) }), _jsxs("div", { className: "font-bold text-blue-400", children: [data.today.win_rate.toFixed(1), "%"] })] })] })), _jsx("button", { onClick: toggleValidation, disabled: actionLoading, className: "w-full text-xs px-3 py-2 rounded-lg bg-primary text-white font-medium hover:bg-primary/90 transition-colors disabled:opacity-50", children: actionLoading ? 'Processing...' : data.is_active ? 'Stop Validation' : 'Start Validation' })] }));
+    return (_jsxs("div", { className: "space-y-3", children: [_jsxs("div", { className: `flex items-center gap-2 p-3 rounded-xl text-xs font-medium ${data.is_active ? 'bg-blue-500/10 text-blue-400' : 'bg-amber-500/10 text-amber-400'}`, children: [_jsx(Activity, { size: 14 }), data.is_active
+                        ? `Active — Day ${Math.min(daysElapsed + 1, 30)}/30`
+                        : 'Inactive — Start 30-day validation to collect readiness data', data.started_at && _jsxs("span", { className: "text-text-muted", children: ["since ", formatKST(data.started_at)] })] }), data.is_active && data.today && (_jsxs("div", { className: "grid grid-cols-3 gap-2 text-xs", children: [_jsxs("div", { className: "bg-surface rounded-xl p-3 text-center", children: [_jsx(Tooltip, { content: findGlossary('return')?.description ?? 'Total Return', children: _jsx("div", { className: "text-text-muted text-[10px]", children: "Total Return" }) }), _jsxs("div", { className: `font-bold ${data.today.cumulative_return >= 0 ? 'text-green-400' : 'text-red-400'}`, children: [data.today.cumulative_return >= 0 ? '+' : '', data.today.cumulative_return.toFixed(2), "%"] })] }), _jsxs("div", { className: "bg-surface rounded-xl p-3 text-center", children: [_jsx(Tooltip, { content: findGlossary('mdd')?.description ?? 'MDD', children: _jsx("div", { className: "text-text-muted text-[10px]", children: "MDD" }) }), _jsxs("div", { className: "font-bold text-red-400", children: [data.today.mdd.toFixed(1), "%"] })] }), _jsxs("div", { className: "bg-surface rounded-xl p-3 text-center", children: [_jsx(Tooltip, { content: findGlossary('winRate')?.description ?? 'Win Rate', children: _jsx("div", { className: "text-text-muted text-[10px]", children: "Win Rate" }) }), _jsxs("div", { className: "font-bold text-blue-400", children: [data.today.win_rate.toFixed(1), "%"] })] })] })), _jsx("button", { onClick: toggleValidation, disabled: actionLoading, className: "w-full text-xs px-3 py-2 rounded-lg bg-primary text-white font-medium hover:bg-primary/90 transition-colors disabled:opacity-50", children: actionLoading ? 'Processing...' : data.is_active ? 'Stop Validation' : 'Start 30-Day Validation' })] }));
 }
 function ReadinessSection({ data, loading }) {
     if (loading)

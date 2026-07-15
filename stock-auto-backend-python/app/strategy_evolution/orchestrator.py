@@ -47,8 +47,8 @@ class EvolutionOrchestrator:
     async def get_status(self) -> EvolutionStatus:
         return await get_evolution_status()
 
-    async def get_strategies(self, generation: int | None = None):
-        return await get_strategies(generation=generation)
+    async def get_strategies(self, generation: int | None = None, limit: int = 200, offset: int = 0):
+        return await get_strategies(generation=generation, limit=limit, offset=offset)
 
     async def get_strategy(self, strategy_id: int):
         return await get_strategy_by_id(strategy_id)
@@ -64,15 +64,18 @@ class EvolutionOrchestrator:
 
     async def _auto_link_portfolio_strategies(self, generation: int, max_count: int = 10):
         from app.database import execute_query, execute_non_query
+        from app.services.service_db import add_system_log, register_strategy
         rows = await execute_query(
-            """SELECT pf.strategy_id, pf.fitness_score, pf.total_return, pf.win_rate, pf.total_trades, pf.max_drawdown
+            """SELECT pf.strategy_id, pf.fitness_score, pf.total_return, pf.win_rate,
+                      pf.total_trades, pf.max_drawdown, pf.profit_factor, pf.sharpe_ratio, pf.cagr,
+                      pf.generation
                FROM strategy_performance pf
                WHERE pf.generation = :1
-                 AND pf.fitness_score >= 50
-                 AND pf.win_rate >= 45
-                 AND pf.total_trades >= 30
-                 AND pf.max_drawdown <= 20
-                 AND pf.total_return >= 20
+                 AND pf.fitness_score >= 20
+                 AND pf.win_rate >= 30
+                 AND pf.total_trades >= 15
+                 AND pf.max_drawdown <= 30
+                 AND pf.total_return >= 5
                ORDER BY pf.fitness_score DESC
                FETCH FIRST :2 ROWS ONLY""",
             [generation, max_count],
@@ -82,6 +85,7 @@ class EvolutionOrchestrator:
         added = 0
         for r in rows:
             sid = r[0]
+            gen = int(r[9] or generation)
             existing = await execute_query(
                 "SELECT COUNT(*) FROM portfolio_strategy WHERE strategy_id = :1",
                 [sid],
@@ -91,11 +95,33 @@ class EvolutionOrchestrator:
             await execute_non_query(
                 """INSERT INTO portfolio_strategy (strategy_id, generation, allocation, status, created_at)
                    VALUES (:1, :2, 0, 'candidate', CURRENT_TIMESTAMP)""",
-                [sid, generation],
+                [sid, gen],
             )
+            already_reg = await execute_query(
+                "SELECT COUNT(*) FROM strategy_registry WHERE strategy_id = :1", [sid]
+            )
+            if not already_reg or already_reg[0][0] == 0:
+                try:
+                    await register_strategy({
+                        "strategy_id": sid,
+                        "name": f"Evolution Strategy #{sid}",
+                        "entry_type": "evolution",
+                        "generation": gen,
+                        "version": 1,
+                        "is_active": True,
+                        "is_elite": r[1] >= 80,
+                        "allocation_pct": 0,
+                        "total_return": float(r[2] or 0),
+                        "win_rate": float(r[3] or 0),
+                        "total_trades": int(r[4] or 0),
+                        "max_drawdown": float(r[5] or 0),
+                        "profit_factor": float(r[6] or 0),
+                        "fitness_score": float(r[1] or 0),
+                    })
+                except Exception:
+                    pass
             added += 1
         if added:
-            from app.services.service_db import add_system_log
             await add_system_log("info", "evolution_portfolio_link",
                 f"Auto-linked {added} strategies from generation {generation}", {})
 

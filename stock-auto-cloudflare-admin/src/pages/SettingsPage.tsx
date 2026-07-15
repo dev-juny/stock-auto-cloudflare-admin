@@ -82,9 +82,12 @@ export default function SettingsPage() {
 
   async function saveRisk() {
     if (!riskSettings) return
+    const clean = Object.fromEntries(
+      Object.entries(riskSettings).map(([k, v]) => [k, v === '' ? 0 : v])
+    )
     setRiskSaving(true)
     try {
-      await api.post('/api/risk/settings', riskSettings)
+      await api.post('/api/risk/settings', clean)
       setRiskSaved(true)
       toast('success', 'Risk settings saved')
       setTimeout(() => setRiskSaved(false), 2000)
@@ -183,7 +186,7 @@ export default function SettingsPage() {
                   </button>
                 ) : (
                   <input type="number" value={Number(settings[key])} min={meta.min} max={meta.max} step={meta.step}
-                    onChange={(e) => update(key, parseFloat(e.target.value) || 0)}
+                    onChange={(e) => { const r = e.target.value; update(key, r === '' ? '' : (parseFloat(r) || 0)) }}
                     className="w-20 bg-surface text-text text-xs px-2 py-1.5 rounded-lg border border-surface-border focus:outline-none focus:border-primary text-right" />
                 )}
               </div>
@@ -206,25 +209,25 @@ export default function SettingsPage() {
             <div className="px-4 py-3 flex items-center justify-between">
               <div><label className="text-sm text-text">Max Portfolio Allocation (Deployment %)</label></div>
               <input type="number" value={riskSettings.max_portfolio_allocation} min={0} max={100} step={5}
-                onChange={(e) => updateRisk('max_portfolio_allocation', parseFloat(e.target.value) || 0)}
+                onChange={(e) => { const r = e.target.value; updateRisk('max_portfolio_allocation', r === '' ? '' : parseFloat(r)) }}
                 className="w-20 bg-surface text-text text-xs px-2 py-1.5 rounded-lg border border-surface-border focus:outline-none focus:border-primary text-right" />
             </div>
             <div className="px-4 py-3 flex items-center justify-between">
               <div><label className="text-sm text-text">Max Position Allocation (Max Exposure)</label></div>
               <input type="number" value={riskSettings.max_position_allocation} min={0} max={100} step={1}
-                onChange={(e) => updateRisk('max_position_allocation', parseFloat(e.target.value) || 0)}
+                onChange={(e) => { const r = e.target.value; updateRisk('max_position_allocation', r === '' ? '' : (parseFloat(r) || 0)) }}
                 className="w-20 bg-surface text-text text-xs px-2 py-1.5 rounded-lg border border-surface-border focus:outline-none focus:border-primary text-right" />
             </div>
             <div className="px-4 py-3 flex items-center justify-between">
               <div><label className="text-sm text-text">Daily Loss Limit (%)</label></div>
               <input type="number" value={riskSettings.daily_loss_limit} min={0} max={20} step={0.5}
-                onChange={(e) => updateRisk('daily_loss_limit', parseFloat(e.target.value) || 0)}
+                onChange={(e) => { const r = e.target.value; updateRisk('daily_loss_limit', r === '' ? '' : (parseFloat(r) || 0)) }}
                 className="w-20 bg-surface text-text text-xs px-2 py-1.5 rounded-lg border border-surface-border focus:outline-none focus:border-primary text-right" />
             </div>
             <div className="px-4 py-3 flex items-center justify-between">
               <div><label className="text-sm text-text">Daily Profit Lock (%)</label></div>
               <input type="number" value={riskSettings.daily_profit_lock} min={0} max={50} step={1}
-                onChange={(e) => updateRisk('daily_profit_lock', parseFloat(e.target.value) || 0)}
+                onChange={(e) => { const r = e.target.value; updateRisk('daily_profit_lock', r === '' ? '' : (parseFloat(r) || 0)) }}
                 className="w-20 bg-surface text-text text-xs px-2 py-1.5 rounded-lg border border-surface-border focus:outline-none focus:border-primary text-right" />
             </div>
             <div className="px-4 py-3 flex items-center justify-between">

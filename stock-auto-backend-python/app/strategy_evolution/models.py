@@ -104,6 +104,9 @@ class EvolutionStrategy(BaseModel):
     max_drawdown: float = 0.0
     profit_factor: float = 0.0
     total_trades: int = 0
+    walk_forward_stability: float = 0.0
+    train_return: float = 0.0
+    val_return: float = 0.0
     is_alive: bool = True
     is_elite: bool = False
     created_at: str = ""
@@ -114,13 +117,18 @@ class EvolutionStrategy(BaseModel):
 class FitnessScore(BaseModel):
     strategy_id: int
     generation: int
-    total_return: float
-    win_rate: float
-    max_drawdown: float
-    profit_factor: float
-    total_trades: int
-    fitness: float
-    calculated_at: str
+    total_return: float = 0.0
+    win_rate: float = 0.0
+    max_drawdown: float = 0.0
+    profit_factor: float = 0.0
+    total_trades: int = 0
+    sharpe_ratio: float = 0.0
+    cagr: float = 0.0
+    fitness: float = 0.0
+    walk_forward_stability: float = 0.0
+    train_return: float = 0.0
+    val_return: float = 0.0
+    calculated_at: str = ""
 
 
 class GenerationSummary(BaseModel):

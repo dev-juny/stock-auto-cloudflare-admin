@@ -37,7 +37,7 @@ export function formatUptime(s: number): string {
   return `${h}시간 ${m}분`
 }
 
-export function formatStockDisplay(name: string | null | undefined, code: string): string {
-  if (name && name !== code) return `${name} (${code})`
-  return code
+export function formatStockDisplay(name: string | null | undefined, code: string | null | undefined): string {
+  if (name && code && name !== code) return `${name} (${code})`
+  return code || name || '-'
 }

@@ -14,9 +14,12 @@ router = APIRouter(prefix="/api/positions", tags=["positions"])
 @router.get("")
 async def list_positions() -> list[PositionResponse]:
     rows = await execute_query(
-        "SELECT id, ticker, entry_date, entry_price, quantity, "
-        "highest_price, is_break_even, holding_days "
-        "FROM active_positions ORDER BY entry_date DESC"
+        "SELECT ap.id, ap.ticker, ap.entry_date, ap.entry_price, ap.quantity, "
+        "ap.highest_price, ap.is_break_even, ap.holding_days, "
+        "ks.name "
+        "FROM active_positions ap "
+        "LEFT JOIN kospi_stocks ks ON ks.ticker = ap.ticker "
+        "ORDER BY ap.entry_date DESC"
     )
     result: list[PositionResponse] = []
     for r in rows:
@@ -24,6 +27,7 @@ async def list_positions() -> list[PositionResponse]:
             PositionResponse(
                 id=r[0],
                 ticker=r[1],
+                name=r[8] if len(r) > 8 else None,
                 entry_date=str(r[2]) if r[2] else "",
                 entry_price=float(r[3]) if r[3] else 0,
                 quantity=int(r[4]) if r[4] else 0,

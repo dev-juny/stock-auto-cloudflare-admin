@@ -32,6 +32,19 @@ async def update_risk_setting(key: str, value) -> dict:
     return await get_risk_settings()
 
 
+async def get_scan_settings() -> dict:
+    raw = await get_settings()
+    return {
+        "max_strategies": int(raw.get("max_strategies", 5)),
+        "max_tickers_per_strategy": int(raw.get("max_tickers_per_strategy", 5)),
+    }
+
+
+async def update_scan_setting(key: str, value) -> dict:
+    await update_setting(key, value, "number" if isinstance(value, (int, float)) else "string")
+    return await get_scan_settings()
+
+
 async def check_risk_limits() -> dict:
     settings = await get_risk_settings()
     daily_loss_limit = float(settings.get("daily_loss_limit", 5))
@@ -124,13 +137,32 @@ async def check_risk_limits() -> dict:
         warnings.append(f"Cash ratio {cash_ratio:.1f}% < 10%")
 
     # P3: Auto cash reserve enforcement
-    max_deploy = float(settings.get("max_capital_deployment", 100))
+    max_deploy = float(settings.get("max_portfolio_allocation", 40))
     min_cash = float(settings.get("min_cash_ratio", 10))
-    if max_deploy < 100:
-        max_exposure = initial_capital * max_deploy / 100
-        if total_exposure > max_exposure:
-            blocked = True
-            reasons.append(f"Exposure {total_exposure:.0f} > max deploy {max_deploy}% ({max_exposure:.0f})")
+    max_exposure = initial_capital * max_deploy / 100
+    exposure_pct = (total_exposure / initial_capital) * 100 if initial_capital > 0 else 0
+    available_exposure_pct = max(0, max_deploy - exposure_pct)  # remaining capacity
+    if total_exposure > max_exposure:
+        blocked = True
+        reasons.append(f"Exposure {total_exposure:.0f} ({exposure_pct:.1f}%) > max deploy {max_deploy}% ({max_exposure:.0f})")
+
+    # Count today's order-level risk rejections
+    risk_reject_count = 0
+    rows = await execute_query(
+        "SELECT COUNT(*) FROM system_logs WHERE log_type = 'RISK' AND source = 'order_risk_reject' AND created_at >= TRUNC(CURRENT_TIMESTAMP)",
+    )
+    if rows and rows[0][0]:
+        risk_reject_count = int(rows[0][0])
+
+    # Last risk rejection reason
+    last_risk_reason = ""
+    rows = await execute_query(
+        """SELECT message FROM system_logs
+           WHERE log_type = 'RISK' AND source = 'order_risk_reject'
+           ORDER BY created_at DESC FETCH FIRST 1 ROWS ONLY""",
+    )
+    if rows and rows[0][0]:
+        last_risk_reason = str(rows[0][0])
 
     return {
         "blocked": blocked,
@@ -139,6 +171,8 @@ async def check_risk_limits() -> dict:
         "today_pnl_pct": round(today_pnl_pct, 2),
         "open_positions": open_positions,
         "total_exposure": round(total_exposure, 2),
+        "exposure_pct": round(exposure_pct, 2),
+        "available_exposure_pct": round(available_exposure_pct, 2),
         "cash_ratio": round(cash_ratio, 2),
         "single_asset_ratio": round(single_asset_ratio, 2),
         "consecutive_losses": consecutive_losses,
@@ -148,6 +182,8 @@ async def check_risk_limits() -> dict:
         "max_capital_deployment": max_deploy,
         "min_cash_ratio": min_cash,
         "max_exposure": initial_capital * max_deploy / 100,
+        "risk_reject_count": risk_reject_count,
+        "last_risk_reason": last_risk_reason,
     }
 
 
@@ -155,9 +191,9 @@ async def check_risk_limits() -> dict:
 
 
 async def auto_promote_strategies() -> dict:
-    """Promote candidates meeting fitness >= 50, win_rate >= 45, trades >= 30.
-    If approved count < 5, auto-promote. If a candidate has higher fitness
-    than an existing approved strategy, swap them."""
+    """Promote candidates to paper_trading lifecycle stage.
+    If paper_trading count < 5, auto-promote. If a candidate has higher fitness
+    than an existing paper_trading strategy, swap them."""
     candidates = await execute_query(
         """SELECT ps.id, ps.strategy_id, ps.generation, pf.fitness_score, pf.win_rate, pf.total_trades, pf.max_drawdown, pf.profit_factor
            FROM portfolio_strategy ps
@@ -169,7 +205,7 @@ async def auto_promote_strategies() -> dict:
            WHERE ps.status = 'candidate'
            ORDER BY pf.fitness_score DESC""",
     )
-    approved = await execute_query(
+    paper_trading = await execute_query(
         """SELECT ps.id, ps.strategy_id, pf.fitness_score
            FROM portfolio_strategy ps
            JOIN (
@@ -177,7 +213,7 @@ async def auto_promote_strategies() -> dict:
                       ROW_NUMBER() OVER (PARTITION BY strategy_id ORDER BY generation DESC) as rn
                FROM strategy_performance
            ) pf ON pf.strategy_id = ps.strategy_id AND pf.rn = 1
-           WHERE ps.status = 'approved'
+           WHERE ps.status = 'paper_trading'
            ORDER BY pf.fitness_score DESC""",
     )
     promoted = 0
@@ -186,34 +222,34 @@ async def auto_promote_strategies() -> dict:
 
     eligible = [
         c for c in candidates
-        if float(c[3] or 0) >= 50        # fitness >= 50
-        and float(c[4] or 0) >= 45       # win_rate >= 45
-        and int(c[5] or 0) >= 30         # total_trades >= 30
-        and float(c[7] or 0) >= 1.3      # profit_factor >= 1.3
-        and abs(float(c[6] or 0)) <= 20  # mdd <= 20
+        if float(c[3] or 0) >= 30        # fitness >= 30
+        and float(c[4] or 0) >= 35       # win_rate >= 35
+        and int(c[5] or 0) >= 20         # total_trades >= 20
+        and float(c[7] or 0) >= 1.2      # profit_factor >= 1.2
+        and abs(float(c[6] or 0)) <= 25  # mdd <= 25
     ]
 
     for c in eligible:
         pid, sid, gen, fitness, wr, trades, mdd, pf = c[0], c[1], c[2], float(c[3] or 0), float(c[4] or 0), int(c[5] or 0), float(c[6] or 0), float(c[7] or 0)
 
-        if len(approved) < 5:
-            # Promote directly
-            await _set_strategy_status(pid, sid, "candidate", "approved", f"Auto-promote fitness={fitness:.1f}")
-            approved.append((pid, sid, fitness))
-            approved.sort(key=lambda x: -x[2])
+        if len(paper_trading) < 5:
+            # Promote directly to paper_trading lifecycle stage
+            await _set_strategy_status(pid, sid, "candidate", "paper_trading", f"Auto-promote fitness={fitness:.1f}")
+            paper_trading.append((pid, sid, fitness))
+            paper_trading.sort(key=lambda x: -x[2])
             promoted += 1
-            logger.info("[AUTO-PROMOTION] Strategy %d promoted (fitness=%.1f wr=%.1f pf=%.2f mdd=%.1f)", sid, fitness, wr, pf, abs(mdd))
+            logger.info("[AUTO-PROMOTION] Strategy %d promoted to paper_trading (fitness=%.1f wr=%.1f pf=%.2f mdd=%.1f)", sid, fitness, wr, pf, abs(mdd))
         else:
-            # Check if better than worst approved
-            worst = approved[-1]
+            # Check if better than worst paper_trading strategy
+            worst = paper_trading[-1]
             if fitness > worst[2]:
-                # Demote worst
-                await _set_strategy_status(worst[0], worst[1], "approved", "candidate", f"Replaced by strategy {sid} (fitness {fitness:.1f} > {worst[2]:.1f})")
+                # Demote worst back to candidate
+                await _set_strategy_status(worst[0], worst[1], "paper_trading", "candidate", f"Replaced by strategy {sid} (fitness {fitness:.1f} > {worst[2]:.1f})")
                 demoted += 1
-                # Promote current
-                await _set_strategy_status(pid, sid, "candidate", "approved", f"Replaced strategy {worst[1]} (fitness {fitness:.1f} > {worst[2]:.1f})")
-                approved[-1] = (pid, sid, fitness)
-                approved.sort(key=lambda x: -x[2])
+                # Promote current to paper_trading
+                await _set_strategy_status(pid, sid, "candidate", "paper_trading", f"Replaced strategy {worst[1]} (fitness {fitness:.1f} > {worst[2]:.1f})")
+                paper_trading[-1] = (pid, sid, fitness)
+                paper_trading.sort(key=lambda x: -x[2])
                 swapped += 1
                 logger.info("[AUTO-PROMOTION] Strategy %d replaced %d (fitness %.1f > %.1f)", sid, worst[1], fitness, worst[2])
 
@@ -233,14 +269,24 @@ async def _set_strategy_status(pid: int, sid: int, old_status: str, new_status: 
     await add_system_log("PROMOTION", "auto_promote", f"Strategy {sid}: {old_status} → {new_status} ({reason})")
 
 
-async def get_promotion_history(limit: int = 50) -> list[dict]:
-    rows = await execute_query(
-        """SELECT ph.id, ph.strategy_id, sp.name, ph.old_status, ph.new_status, ph.reason, ph.created_at
-           FROM promotion_history ph
-           LEFT JOIN strategy_pool sp ON sp.id = ph.strategy_id
-           ORDER BY ph.created_at DESC FETCH FIRST :1 ROWS ONLY""",
-        [limit],
-    )
+async def get_promotion_history(limit: int = 50, strategy_id: int | None = None) -> list[dict]:
+    if strategy_id:
+        rows = await execute_query(
+            """SELECT ph.id, ph.strategy_id, sp.name, ph.old_status, ph.new_status, ph.reason, ph.created_at
+               FROM promotion_history ph
+               LEFT JOIN strategy_pool sp ON sp.id = ph.strategy_id
+               WHERE ph.strategy_id = :1
+               ORDER BY ph.created_at DESC FETCH FIRST :2 ROWS ONLY""",
+            [strategy_id, limit],
+        )
+    else:
+        rows = await execute_query(
+            """SELECT ph.id, ph.strategy_id, sp.name, ph.old_status, ph.new_status, ph.reason, ph.created_at
+               FROM promotion_history ph
+               LEFT JOIN strategy_pool sp ON sp.id = ph.strategy_id
+               ORDER BY ph.created_at DESC FETCH FIRST :1 ROWS ONLY""",
+            [limit],
+        )
     return [
         {
             "id": r[0], "strategy_id": r[1], "strategy_name": r[2] or "",
@@ -350,28 +396,51 @@ def get_pf_grade(pf: float) -> str:
     return "EXCELLENT"
 
 
-async def get_paper_performance(period: str = "ALL") -> dict:
-    rows = await execute_query("SELECT COUNT(*) FROM paper_trades")
+async def get_paper_performance(period: str = "ALL", session_id: int = 1) -> dict:
+    session_filter = "AND session_id = :sid"
+
+    rows = await execute_query(
+        "SELECT COUNT(*) FROM paper_trades WHERE 1=1 " + session_filter,
+        [session_id],
+    )
     total_trades = int(rows[0][0]) if rows else 0
 
-    rows = await execute_query("SELECT COUNT(*) FROM paper_trades WHERE action = 'sell' AND pnl_pct > 0")
+    rows = await execute_query(
+        f"SELECT COUNT(*) FROM paper_trades WHERE action = 'sell' AND pnl_pct > 0 {session_filter}",
+        [session_id],
+    )
     winning_trades = int(rows[0][0]) if rows else 0
 
-    rows = await execute_query("SELECT COUNT(*) FROM paper_trades WHERE action = 'sell' AND pnl_pct <= 0")
+    rows = await execute_query(
+        f"SELECT COUNT(*) FROM paper_trades WHERE action = 'sell' AND pnl_pct <= 0 {session_filter}",
+        [session_id],
+    )
     losing_trades = int(rows[0][0]) if rows else 0
 
     win_rate = (winning_trades / max(total_trades, 1)) * 100 if total_trades > 0 else 0
 
-    rows = await execute_query("SELECT COALESCE(AVG(pnl_pct), 0) FROM paper_trades WHERE action = 'sell'")
+    rows = await execute_query(
+        f"SELECT COALESCE(AVG(pnl_pct), 0) FROM paper_trades WHERE action = 'sell' {session_filter}",
+        [session_id],
+    )
     avg_trade_return = float(rows[0][0]) if rows else 0
 
-    rows = await execute_query("SELECT COALESCE(SUM(pnl_amt), 0) FROM paper_trades WHERE action = 'sell'")
+    rows = await execute_query(
+        f"SELECT COALESCE(SUM(pnl_amt), 0) FROM paper_trades WHERE action = 'sell' {session_filter}",
+        [session_id],
+    )
     total_pnl = float(rows[0][0]) if rows else 0
 
-    initial_capital = 10000000.0
+    # Get session's initial capital
+    from app.services.paper_trading_service import get_session
+    sess = await get_session(session_id)
+    initial_capital = sess["initial_capital"] if sess else 10000000.0
     total_return = (total_pnl / initial_capital) * 100
 
-    rows = await execute_query("SELECT COALESCE(AVG(EXTRACT(DAY FROM (exit_date - entry_date))), 0) FROM paper_positions WHERE status = 'closed'")
+    rows = await execute_query(
+        f"SELECT COALESCE(AVG(EXTRACT(DAY FROM (exit_date - entry_date))), 0) FROM paper_positions WHERE status = 'closed' {session_filter}",
+        [session_id],
+    )
     avg_holding_days = float(rows[0][0]) if rows else 0
 
     # Period filter for daily returns and performance metrics
@@ -384,12 +453,14 @@ async def get_paper_performance(period: str = "ALL") -> dict:
         date_filter = "AND trade_date >= CURRENT_TIMESTAMP - INTERVAL '90' DAY"
 
     rows = await execute_query(
-        f"SELECT COALESCE(SUM(pnl_amt), 0) FROM paper_trades WHERE action = 'sell' AND pnl_amt > 0 {date_filter}",
+        f"SELECT COALESCE(SUM(pnl_amt), 0) FROM paper_trades WHERE action = 'sell' AND pnl_amt > 0 {date_filter} {session_filter}",
+        [session_id],
     )
     gross_profit = float(rows[0][0]) if rows else 0
 
     rows = await execute_query(
-        f"SELECT COALESCE(SUM(pnl_amt), 0) FROM paper_trades WHERE action = 'sell' AND pnl_amt < 0 {date_filter}",
+        f"SELECT COALESCE(SUM(pnl_amt), 0) FROM paper_trades WHERE action = 'sell' AND pnl_amt < 0 {date_filter} {session_filter}",
+        [session_id],
     )
     gross_loss = abs(float(rows[0][0]) if rows else 0)
 
@@ -397,8 +468,9 @@ async def get_paper_performance(period: str = "ALL") -> dict:
 
     rows = await execute_query(
         f"""SELECT TRUNC(trade_date), COALESCE(SUM(pnl_amt), 0)
-            FROM paper_trades WHERE action = 'sell' {date_filter}
+            FROM paper_trades WHERE action = 'sell' {date_filter} {session_filter}
             GROUP BY TRUNC(trade_date) ORDER BY TRUNC(trade_date) ASC""",
+        [session_id],
     )
     daily_pnl_map = {str(r[0]): float(r[1]) for r in rows}
     daily_returns_list = [pnl / initial_capital for pnl in daily_pnl_map.values()]
@@ -428,7 +500,10 @@ async def get_paper_performance(period: str = "ALL") -> dict:
             mdd = dd
 
     # CAGR
-    first_trade_row = await execute_query("SELECT MIN(trade_date) FROM paper_trades")
+    first_trade_row = await execute_query(
+        f"SELECT MIN(trade_date) FROM paper_trades WHERE 1=1 {session_filter}",
+        [session_id],
+    )
     first_trade = first_trade_row[0][0] if first_trade_row else None
     cagr = 0.0
     if first_trade and total_trades > 0:
@@ -438,10 +513,16 @@ async def get_paper_performance(period: str = "ALL") -> dict:
             cagr = ((1 + total_return / 100) ** (365 / days_elapsed) - 1) * 100
 
     # Current exposure
-    rows = await execute_query("SELECT COALESCE(SUM(quantity * current_price), 0) FROM paper_positions WHERE status = 'open'")
+    rows = await execute_query(
+        f"SELECT COALESCE(SUM(quantity * current_price), 0) FROM paper_positions WHERE status = 'open' {session_filter}",
+        [session_id],
+    )
     current_exposure = float(rows[0][0]) if rows else 0
 
-    rows = await execute_query("SELECT COUNT(*) FROM paper_positions WHERE status = 'open'")
+    rows = await execute_query(
+        f"SELECT COUNT(*) FROM paper_positions WHERE status = 'open' {session_filter}",
+        [session_id],
+    )
     open_positions_count = int(rows[0][0]) if rows else 0
 
     cash_ratio = max(0, (initial_capital - current_exposure) / initial_capital * 100)
@@ -467,6 +548,7 @@ async def get_paper_performance(period: str = "ALL") -> dict:
     avg_loss = gross_loss / max(losing_trades, 1)
 
     return {
+        "initial_capital": round(initial_capital, 2),
         "total_return": round(total_return, 2),
         "cagr": round(cagr, 2),
         "sharpe": round(sharpe, 4),
@@ -906,7 +988,8 @@ async def set_capital_deployment(deployment_pct: float) -> dict:
     if deployment_pct < 10 or deployment_pct > 100:
         return {"error": "deployment_pct must be between 10 and 100"}
     await update_setting("max_capital_deployment", deployment_pct, "number")
-    await add_system_log("RISK", "set_capital_deployment", f"max_capital_deployment set to {deployment_pct}%")
+    await update_setting("max_portfolio_allocation", deployment_pct, "number")
+    await add_system_log("RISK", "set_capital_deployment", f"max_capital_deployment/max_portfolio_allocation set to {deployment_pct}%")
     return await check_risk_limits()
 
 
@@ -1323,6 +1406,16 @@ async def check_live_trading_readiness() -> dict:
         "verdict": result.get("verdict", "FAIL"),
         "summary": f"{checks_passed}/{checks_total} conditions met (score {readiness_score}/100 - {score_grade})",
         "gaps": gaps,
+        "checks": [
+            {
+                "name": key,
+                "passed": g["passed"],
+                "actual": g["current"],
+                "threshold": g["target"],
+                "detail": f"{g['current']} / {g['target']}{' (gap: ' + str(g['gap']) + ')' if g['gap'] > 0 else ''}",
+            }
+            for key, g in gaps.items()
+        ],
         "estimates": estimates,
         "performance": {
             "total_return": round(performance.get("total_return", 0), 2),
@@ -1352,6 +1445,7 @@ async def check_live_trading_readiness() -> dict:
 async def get_integration_dashboard() -> dict:
     """Unified dashboard aggregating evolution, portfolio, risk, validation, paper trading status."""
     from app.strategy_evolution.database import get_evolution_status
+    from app.services.paper_trading_service import get_active_session
 
     # Evolution
     evo = await get_evolution_status()
@@ -1367,8 +1461,10 @@ async def get_integration_dashboard() -> dict:
     validation = await get_validation_status()
     vd = await get_validation_dashboard()
 
-    # Paper Trading
-    perf = await get_paper_performance()
+    # Paper Trading (use active session)
+    active_sess = await get_active_session()
+    pt_session_id = active_sess["id"] if active_sess else 1
+    perf = await get_paper_performance(session_id=pt_session_id)
 
     # Readiness
     readiness = await check_live_trading_readiness()
@@ -1381,10 +1477,16 @@ async def get_integration_dashboard() -> dict:
         now_kst = now_utc
 
     # Last trade time
-    rows = await execute_query("SELECT MAX(trade_date) FROM paper_trades WHERE action = 'sell'")
+    rows = await execute_query(
+        "SELECT MAX(trade_date) FROM paper_trades WHERE action = 'sell' AND session_id = :1",
+        [pt_session_id],
+    )
     last_sell = str(rows[0][0])[:19] if rows and rows[0][0] else "N/A"
 
-    rows = await execute_query("SELECT MIN(trade_date) FROM paper_trades")
+    rows = await execute_query(
+        "SELECT MIN(trade_date) FROM paper_trades WHERE session_id = :1",
+        [pt_session_id],
+    )
     first_trade = str(rows[0][0])[:19] if rows and rows[0][0] else "N/A"
 
     # Latest strategy performance
@@ -1396,14 +1498,17 @@ async def get_integration_dashboard() -> dict:
     latest_mdd = float(sp_rows[0][1]) if sp_rows and sp_rows[0][1] else 0
     latest_gen = int(sp_rows[0][2]) if sp_rows and sp_rows[0][2] else 0
 
-    # Paper trading metrics — compute cash ratio from actual exposure (same formula as check_risk_limits)
-    initial_cap = 10000000
+    # Paper trading metrics — compute cash ratio from actual exposure
+    pt_initial_capital = perf.get("initial_capital") or (active_sess["initial_capital"] if active_sess else 10000000)
     current_exposure_amount = risk.get("total_exposure", 0)
-    cash_ratio_pct = max(0, (initial_cap - current_exposure_amount) / initial_cap * 100)
-    exposure_pct = current_exposure_amount / initial_cap * 100
+    cash_ratio_pct = max(0, (pt_initial_capital - current_exposure_amount) / pt_initial_capital * 100) if pt_initial_capital > 0 else 0
+    exposure_pct = current_exposure_amount / pt_initial_capital * 100 if pt_initial_capital > 0 else 0
 
     # Sell trades
-    sell_rows = await execute_query("SELECT COUNT(*) FROM paper_trades WHERE action = 'sell'")
+    sell_rows = await execute_query(
+        "SELECT COUNT(*) FROM paper_trades WHERE action = 'sell' AND session_id = :1",
+        [pt_session_id],
+    )
     sell_trades_cnt = int(sell_rows[0][0]) if sell_rows else 0
 
     return {
@@ -1436,9 +1541,16 @@ async def get_integration_dashboard() -> dict:
             "open_positions": risk.get("open_positions", 0),
             "mdd": risk.get("portfolio_mdd", 0),
             "exposure_pct": round(exposure_pct, 1),
+            "available_exposure_pct": round(max(0, 100 - exposure_pct), 1),
             "max_capital_deployment": risk.get("max_capital_deployment", 100),
+            "risk_reject_count": risk.get("risk_reject_count", 0),
+            "last_risk_reason": risk.get("last_risk_reason", ""),
         },
         "paper_trading": {
+            "session_id": pt_session_id,
+            "session_name": active_sess["name"] if active_sess else "Default Session",
+            "session_status": active_sess["status"] if active_sess else "active",
+            "initial_capital": round(pt_initial_capital, 2),
             "total_return": perf.get("total_return", 0),
             "total_pnl": perf.get("total_pnl", 0),
             "win_rate": perf.get("win_rate", 0),
