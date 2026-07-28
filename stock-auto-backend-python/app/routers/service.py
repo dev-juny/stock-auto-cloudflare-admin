@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Optional
 from datetime import datetime
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Request
 
 from app.database import execute_query, execute_non_query
 from app.services.service_db import (
@@ -48,6 +48,15 @@ from app.services.shadow_trading_service import (
 )
 
 router = APIRouter(prefix="/api", tags=["service"])
+
+
+def _require_admin(request: Request) -> dict:
+    user = getattr(request.state, "user", None)
+    if not user or not isinstance(user, dict):
+        raise HTTPException(status_code=401, detail="Authentication required")
+    if user.get("role", "") != "admin":
+        raise HTTPException(status_code=403, detail="Admin role required for production changes")
+    return user
 
 
 @router.on_event("startup")
@@ -423,8 +432,9 @@ async def production_strategies_by_stage(stage: str):
 
 
 @router.post("/production/promote")
-async def production_promote(data: dict):
+async def production_promote(data: dict, request: Request):
     """Promote a strategy to the next lifecycle stage."""
+    _require_admin(request)
     sid = data.get("strategy_id")
     if not sid:
         raise HTTPException(400, "strategy_id required")
@@ -433,8 +443,9 @@ async def production_promote(data: dict):
 
 
 @router.post("/production/demote")
-async def production_demote(data: dict):
+async def production_demote(data: dict, request: Request):
     """Demote a strategy to a previous lifecycle stage."""
+    _require_admin(request)
     sid = data.get("strategy_id")
     if not sid:
         raise HTTPException(400, "strategy_id required")
@@ -480,14 +491,16 @@ async def production_evaluate_candidates():
 
 
 @router.get("/production/auto-replace")
-async def production_auto_replace():
+async def production_auto_replace(request: Request):
     """Auto-replace production strategies with better candidates."""
+    _require_admin(request)
     return await auto_replace_production()
 
 
 @router.post("/production/promote-to-production")
-async def production_promote_to_production(data: dict):
+async def production_promote_to_production(data: dict, request: Request):
     """Manually promote a survivor to production."""
+    _require_admin(request)
     sid = data.get("strategy_id")
     if not sid:
         raise HTTPException(400, "strategy_id required")
@@ -496,8 +509,9 @@ async def production_promote_to_production(data: dict):
 
 
 @router.post("/production/rollback")
-async def production_rollback(data: dict):
+async def production_rollback(data: dict, request: Request):
     """Rollback a production strategy to survivor."""
+    _require_admin(request)
     sid = data.get("strategy_id")
     if not sid:
         raise HTTPException(400, "strategy_id required")
@@ -596,8 +610,9 @@ async def shadow_order_create(data: dict):
 
 
 @router.post("/shadow/session/{session_id}/evaluate")
-async def shadow_session_evaluate(session_id: int):
+async def shadow_session_evaluate(session_id: int, request: Request):
     """Evaluate a shadow session for production promotion."""
+    _require_admin(request)
     return await evaluate_shadow_for_production(session_id)
 
 

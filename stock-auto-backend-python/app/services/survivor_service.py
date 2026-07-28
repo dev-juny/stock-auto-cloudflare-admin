@@ -252,7 +252,8 @@ async def evaluate_survivors() -> dict:
 
 
 async def promote_to_production(strategy_id: int, reason: str = "Manual promotion") -> dict:
-    return await promote_strategy(strategy_id, reason)
+    from app.services.strategy_lifecycle import promote_to_production as _promote
+    return await _promote(strategy_id, reason)
 
 
 async def rollback_production(strategy_id: int, target: str = "survivor", reason: str = "Manual rollback") -> dict:
@@ -338,41 +339,11 @@ async def evaluate_production_candidates() -> dict:
 
 
 async def auto_replace_production() -> dict:
-    production = await get_strategies_by_stage("production")
-    candidates = await get_strategies_by_stage("production_candidate")
-
-    if not candidates or not production:
-        return {"status": "SKIPPED", "message": "Need both production and candidates for replacement"}
-
-    prod_scored = []
-    for p in production:
-        sd = await calculate_survivor_score(p["strategy_id"])
-        prod_scored.append({"strategy_id": p["strategy_id"], "score": sd["survivor_score"]})
-
-    cand_scored = []
-    for c in candidates:
-        sd = await calculate_survivor_score(c["strategy_id"])
-        cand_scored.append({"strategy_id": c["strategy_id"], "score": sd["survivor_score"]})
-
-    worst_prod = min(prod_scored, key=lambda x: x["score"]) if prod_scored else None
-    best_cand = max(cand_scored, key=lambda x: x["score"]) if cand_scored else None
-
-    if not worst_prod or not best_cand:
-        return {"status": "SKIPPED", "message": "Cannot compare scores"}
-
-    if best_cand["score"] > worst_prod["score"] * 1.1 and best_cand["score"] > 0.6:
-        await demote_strategy(worst_prod["strategy_id"], "retired",
-            f"Auto-replaced by candidate {best_cand['strategy_id']} (score {best_cand['score']:.4f} > {worst_prod['score']:.4f})")
-        await promote_strategy(best_cand["strategy_id"],
-            f"Auto-promoted to production (replaced {worst_prod['strategy_id']})")
-        await add_system_log("survivor", "auto_replace",
-            f"Production replaced: {worst_prod['strategy_id']} -> {best_cand['strategy_id']}",
-            {"replaced": worst_prod, "promoted": best_cand})
-        return {"status": "SUCCESS", "replaced": worst_prod["strategy_id"],
-                "promoted": best_cand["strategy_id"],
-                "old_score": worst_prod["score"], "new_score": best_cand["score"]}
-
-    return {"status": "SKIPPED", "message": "No candidate outperforms current production by 10%"}
+    return {
+        "status": "BLOCKED",
+        "message": "Auto-replace is disabled. Production changes require manual admin approval.",
+        "details": {"auto_replace_disabled": True},
+    }
 
 
 async def get_production_dashboard() -> dict:

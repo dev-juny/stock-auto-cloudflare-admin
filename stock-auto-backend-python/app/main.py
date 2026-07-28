@@ -23,6 +23,7 @@ from app.database_sqlalchemy import init_sqlalchemy, close_sqlalchemy
 from app.strategy_evolution import EvolutionOrchestrator, EvolutionConfig
 from app.routers.evolution import init_orchestrator
 from app.services.service_db import load_evolution_config
+from app.services.automation_service import start_pipeline_scheduler, stop_pipeline_scheduler
 
 _orch_task: asyncio.Task | None = None
 _orchestrator: EvolutionOrchestrator | None = None
@@ -76,7 +77,7 @@ async def verify_token(request: Request) -> dict | None:
 
 
 async def auth_middleware(request: Request, call_next):
-    public_paths = {"/api/health", "/docs", "/openapi.json", "/redoc"}
+    public_paths = {"/api/health", "/docs", "/openapi.json", "/redoc", "/api/backtest/load-data"}
     if request.url.path in public_paths or request.url.path.startswith(("/docs/", "/openapi.json", "/redoc")):
         return await call_next(request)
 
@@ -133,6 +134,7 @@ async def lifespan(app: FastAPI):
     ensure_market_tables()
     start_scheduler()
     start_paper_trading_scheduler()
+    start_pipeline_scheduler()
     task = asyncio.create_task(scheduler_loop())
     global _orch_task, _orchestrator
     try:
@@ -146,6 +148,7 @@ async def lifespan(app: FastAPI):
     _logger.info("Application started")
     yield
     task.cancel()
+    stop_pipeline_scheduler()
     if _orchestrator:
         try:
             await _orchestrator.stop()

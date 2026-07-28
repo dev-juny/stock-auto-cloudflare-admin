@@ -283,27 +283,21 @@ async def _step_survivor_selection() -> dict:
 
 
 async def _step_shadow_trading() -> dict:
-    from app.services.shadow_trading_service import list_shadow_sessions, evaluate_shadow_for_production
+    from app.services.shadow_trading_service import list_shadow_sessions
     sessions = await list_shadow_sessions(status="active")
     if not sessions:
         return {"status": "SKIPPED", "message": "No active shadow sessions"}
-    evaluated = 0
-    promoted = 0
-    for s in sessions:
-        result = await evaluate_shadow_for_production(s["id"])
-        evaluated += 1
-        if result.get("status") == "SUCCESS":
-            promoted += 1
-    return {"status": "SUCCESS", "message": f"Evaluated {evaluated} shadow sessions, {promoted} promoted",
-            "details": {"evaluated": evaluated, "promoted": promoted}}
+    return {"status": "SUCCESS",
+            "message": f"Shadow trading: {len(sessions)} active sessions monitored. Auto-promotion disabled - requires manual admin approval.",
+            "details": {"active_sessions": len(sessions), "auto_promotion": False}}
 
 
 async def _step_promote_production() -> dict:
-    from app.services.survivor_service import auto_replace_production
-    result = await auto_replace_production()
-    return {"status": result.get("status", "SKIPPED"),
-            "message": result.get("message", ""),
-            "details": result}
+    return {
+        "status": "WAITING_MANUAL_APPROVAL",
+        "message": "Production promotion requires manual admin approval. Use /api/production/promote-to-production.",
+        "details": {"auto_promotion_disabled": True},
+    }
 
 
 _STEP_FUNCS = {
@@ -386,3 +380,48 @@ async def run_single_step(step: str) -> dict:
         return {"status": status, "message": message, "step": step, "duration_ms": elapsed}
     finally:
         _locked = False
+
+
+# ── Pipeline Scheduler ──────────────────────────────────────────
+
+_pipeline_scheduler_running = False
+
+
+async def _pipeline_scheduler_loop():
+    global _pipeline_scheduler_running
+    while _pipeline_scheduler_running:
+        try:
+            config = await get_pipeline_config()
+            if config["enabled"]:
+                from app.services.service_db import get_settings
+                raw = await get_settings()
+                interval_minutes = int(raw.get("pipeline_interval_minutes", 60))
+                await asyncio.sleep(interval_minutes * 60)
+                if not _pipeline_scheduler_running:
+                    break
+                try:
+                    await run_pipeline("evolution")
+                except Exception as e:
+                    logger.error("Pipeline scheduler error: %s", e)
+            else:
+                await asyncio.sleep(60)
+        except asyncio.CancelledError:
+            break
+        except Exception as e:
+            logger.error("Pipeline scheduler loop error: %s", e)
+            await asyncio.sleep(60)
+
+
+def start_pipeline_scheduler():
+    global _pipeline_scheduler_running
+    _pipeline_scheduler_running = True
+    import asyncio
+    try:
+        asyncio.create_task(_pipeline_scheduler_loop())
+    except RuntimeError:
+        pass
+
+
+def stop_pipeline_scheduler():
+    global _pipeline_scheduler_running
+    _pipeline_scheduler_running = False

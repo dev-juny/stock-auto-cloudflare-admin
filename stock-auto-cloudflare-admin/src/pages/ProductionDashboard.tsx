@@ -452,14 +452,24 @@ export default function ProductionDashboard() {
           actions={(s) => (
             <div className="flex gap-1 justify-end">
               <button
-                onClick={() => promoteStrategy(s.strategy_id, s.name || `#${s.strategy_id}`)}
+                onClick={() => setConfirmAction({
+                  title: 'Promote Survivor',
+                  message: `Promote "${s.name || `#${s.strategy_id}`}" from survivor to production_candidate?`,
+                  variant: 'primary',
+                  onConfirm: () => promoteStrategy(s.strategy_id, s.name || `#${s.strategy_id}`),
+                })}
                 disabled={promoting}
                 className="text-[9px] px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-400 hover:bg-blue-500/30"
               >
                 Promote
               </button>
               <button
-                onClick={() => demoteStrategy(s.strategy_id, s.name || `#${s.strategy_id}`, 'failed')}
+                onClick={() => setConfirmAction({
+                  title: 'Fail Survivor',
+                  message: `Mark "${s.name || `#${s.strategy_id}`}" as failed?`,
+                  variant: 'danger',
+                  onConfirm: () => demoteStrategy(s.strategy_id, s.name || `#${s.strategy_id}`, 'failed'),
+                })}
                 disabled={rollbackLoading}
                 className="text-[9px] px-1.5 py-0.5 rounded bg-red-500/20 text-red-400 hover:bg-red-500/30"
               >

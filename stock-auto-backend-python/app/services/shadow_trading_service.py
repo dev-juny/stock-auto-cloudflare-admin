@@ -10,8 +10,7 @@ from typing import Optional
 from app.database import execute_query, execute_non_query, acquire_conn
 from app.services.service_db import add_system_log, get_settings
 from app.services.strategy_lifecycle import (
-    get_strategies_by_stage, promote_strategy, demote_strategy,
-    acquire_production_lock, release_production_lock,
+    get_strategies_by_stage,
 )
 
 logger = logging.getLogger(__name__)
@@ -423,55 +422,11 @@ async def get_shadow_positions(session_id: int) -> list[dict]:
 
 
 async def evaluate_shadow_for_production(session_id: int) -> dict:
-    sess = await get_shadow_session(session_id)
-    if not sess:
-        return {"status": "FAILED", "message": "Session not found"}
-    if sess["status"] != "active":
-        return {"status": "FAILED", "message": "Session is not active"}
-
-    start = sess["started_at"]
-    if start:
-        days = (datetime.now(timezone.utc) - datetime.fromisoformat(start.replace('Z', '+00:00'))).days if 'T' in start else 0
-    else:
-        days = 0
-
-    reasons = []
-    if days < SHADOW_MIN_DAYS:
-        reasons.append(f"Active {days}d < {SHADOW_MIN_DAYS}d minimum")
-    if sess["successful_orders"] < SHADOW_MIN_TRADES:
-        reasons.append(f"Orders {sess['successful_orders']} < {SHADOW_MIN_TRADES}")
-    if abs(sess.get("max_drawdown", 0)) > SHADOW_MAX_DD:
-        reasons.append(f"MDD {sess.get('max_drawdown',0):.1f}% > {SHADOW_MAX_DD}%")
-    if sess.get("profit_factor", 0) < SHADOW_MIN_PF and sess["successful_orders"] >= 5:
-        reasons.append(f"PF {sess.get('profit_factor',0):.2f} < {SHADOW_MIN_PF}")
-    if sess["failed_orders"] > 0:
-        reasons.append(f"{sess['failed_orders']} failed orders")
-
-    if reasons:
-        return {"status": "NOT_READY", "message": "; ".join(reasons), "session": sess}
-
-    if sess["total_return"] is None or sess["total_return"] < SHADOW_MIN_SCORE:
-        reasons.append(f"Return {sess.get('total_return',0):.2f}% < {SHADOW_MIN_SCORE*100:.0f}%")
-
-    if reasons:
-        return {"status": "NOT_READY", "message": "; ".join(reasons), "session": sess}
-
-    lock_ok = await acquire_production_lock(sess["strategy_id"], "Shadow->Production promotion")
-    if not lock_ok:
-        return {"status": "FAILED", "message": "Production lock could not be acquired"}
-
-    try:
-        result = await promote_strategy(sess["strategy_id"], f"Auto-promoted from shadow trading (session {session_id})")
-        await execute_non_query(
-            "UPDATE shadow_session SET status = 'promoted', ended_at = CURRENT_TIMESTAMP WHERE id = :1",
-            [session_id],
-        )
-        await add_system_log("shadow", "shadow_trading",
-            f"Shadow session {session_id} promoted to production",
-            {"strategy_id": sess["strategy_id"], "session_id": session_id})
-        return {"status": "SUCCESS", "message": "Promoted to production", "session": sess, "promotion": result}
-    finally:
-        await release_production_lock()
+    return {
+        "status": "WAITING_MANUAL_APPROVAL",
+        "message": "Auto-promotion from shadow trading is disabled. Use /api/production/promote-to-production for manual approval.",
+        "details": {"auto_promotion_disabled": True, "session_id": session_id},
+    }
 
 
 async def get_shadow_dashboard() -> dict:

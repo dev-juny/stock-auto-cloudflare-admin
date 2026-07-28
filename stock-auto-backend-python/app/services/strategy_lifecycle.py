@@ -30,8 +30,22 @@ PROMOTION_PATH = {
     "paper_trading": "survivor",
     "survivor": "production_candidate",
     "production_candidate": "shadow_trading",
-    "shadow_trading": "production",
 }
+
+ALLOWED_TRANSITIONS = {
+    "created": {"backtesting"},
+    "backtesting": {"paper_trading", "failed"},
+    "paper_trading": {"survivor", "failed"},
+    "survivor": {"production_candidate", "failed"},
+    "production_candidate": {"shadow_trading", "failed"},
+    "shadow_trading": {"failed"},
+    "production": {"retired", "failed"},
+    "retired": {"archived"},
+    "failed": {"archived"},
+    "archived": set(),
+}
+
+VALID_DEMOTE_TARGETS = {"failed", "retired", "archived", "paper_trading", "survivor", "production_candidate", "shadow_trading"}
 
 _production_lock = False
 _lock_reason = ""
@@ -115,6 +129,17 @@ async def get_lifecycle_stage(strategy_id: int) -> Optional[str]:
 
 
 async def set_lifecycle_stage(strategy_id: int, stage: str, reason: str = ""):
+    current = await get_lifecycle_stage(strategy_id)
+    if not current:
+        raise ValueError(f"Strategy {strategy_id} not found")
+
+    allowed = ALLOWED_TRANSITIONS.get(current, set())
+    if stage not in allowed:
+        raise ValueError(
+            f"Invalid lifecycle transition: {current} -> {stage}. "
+            f"Allowed: {', '.join(sorted(allowed)) if allowed else 'none'}"
+        )
+
     await execute_non_query(
         "UPDATE portfolio_strategy SET status = :1, updated_at = CURRENT_TIMESTAMP WHERE strategy_id = :2",
         [stage, strategy_id],
@@ -136,30 +161,17 @@ async def promote_strategy(strategy_id: int, reason: str = "") -> dict:
         return {"status": "FAILED", "message": f"Cannot promote from stage '{current}'"}
     next_stage = PROMOTION_PATH[current]
 
+    if next_stage == "production":
+        return {
+            "status": "BLOCKED",
+            "message": "Production promotion requires manual admin approval. Use /api/production/promote-to-production.",
+        }
+
     conn = await acquire_conn()
     try:
         cursor = conn.cursor()
         cursor.execute("BEGIN")
-
         try:
-            if next_stage == "production":
-                existing = await get_current_production_id()
-                if existing:
-                    cursor.execute(
-                        "UPDATE portfolio_strategy SET status = 'retired', updated_at = CURRENT_TIMESTAMP WHERE strategy_id = :1 AND status = 'production'",
-                        [existing],
-                    )
-                    name_row = cursor.execute(
-                        "SELECT name, generation FROM strategy_registry WHERE strategy_id = :1", [existing]
-                    ).fetchone()
-                    ename = name_row[0] if name_row else ""
-                    egen = name_row[1] if name_row else 0
-                    cursor.execute(
-                        """INSERT INTO production_history (strategy_id, name, generation, action, action_reason, previous_stage, new_stage)
-                           VALUES (:1,:2,:3,:4,:5,:6,:7)""",
-                        [existing, ename, egen, "auto_retired", f"Replaced by strategy {strategy_id}", "production", "retired"],
-                    )
-
             cursor.execute(
                 "UPDATE portfolio_strategy SET status = :1, updated_at = CURRENT_TIMESTAMP WHERE strategy_id = :2",
                 [next_stage, strategy_id],
@@ -194,7 +206,92 @@ async def promote_strategy(strategy_id: int, reason: str = "") -> dict:
     return {"status": "SUCCESS", "from": current, "to": next_stage, "message": reason}
 
 
+async def promote_to_production(strategy_id: int, reason: str = "Manual promotion") -> dict:
+    current = await get_lifecycle_stage(strategy_id)
+    if not current:
+        return {"status": "FAILED", "message": f"Strategy {strategy_id} not found"}
+
+    VALID_SOURCES = {"shadow_trading", "survivor", "production_candidate"}
+    if current not in VALID_SOURCES:
+        return {
+            "status": "FAILED",
+            "message": f"Cannot promote to production from stage '{current}'. Must be one of: {', '.join(sorted(VALID_SOURCES))}",
+        }
+
+    conn = await acquire_conn()
+    try:
+        cursor = conn.cursor()
+        cursor.execute("BEGIN")
+        try:
+            cursor.execute("SELECT strategy_id FROM portfolio_strategy WHERE status = 'production' FOR UPDATE")
+            existing_row = cursor.fetchone()
+
+            if existing_row:
+                existing_id = existing_row[0]
+                cursor.execute(
+                    "UPDATE portfolio_strategy SET status = 'retired', updated_at = CURRENT_TIMESTAMP WHERE strategy_id = :1 AND status = 'production'",
+                    [existing_id],
+                )
+                name_row = cursor.execute(
+                    "SELECT name, generation FROM strategy_registry WHERE strategy_id = :1", [existing_id]
+                ).fetchone()
+                ename = name_row[0] if name_row else ""
+                egen = name_row[1] if name_row else 0
+                cursor.execute(
+                    """INSERT INTO production_history (strategy_id, name, generation, action, action_reason, previous_stage, new_stage, details_json)
+                       VALUES (:1,:2,:3,:4,:5,:6,:7,:8)""",
+                    [existing_id, ename, egen, "auto_retired", f"Replaced by strategy {strategy_id}", "production", "retired",
+                     json.dumps({"replaced_by": strategy_id, "reason": reason})],
+                )
+
+            cursor.execute(
+                "UPDATE portfolio_strategy SET status = 'production', updated_at = CURRENT_TIMESTAMP WHERE strategy_id = :1",
+                [strategy_id],
+            )
+
+            name_row = cursor.execute(
+                "SELECT name, generation FROM strategy_registry WHERE strategy_id = :1", [strategy_id]
+            ).fetchone()
+            name = name_row[0] if name_row else ""
+            gen = name_row[1] if name_row else 0
+            cursor.execute(
+                """INSERT INTO production_history (strategy_id, name, generation, action, action_reason, previous_stage, new_stage, details_json)
+                   VALUES (:1,:2,:3,:4,:5,:6,:7,:8)""",
+                [strategy_id, name, gen, "promote_to_production", reason[:500], current, "production",
+                 json.dumps({"manual_approval": True, "reason": reason})],
+            )
+
+            cursor.execute(
+                """INSERT INTO system_logs (log_type, source, message, details_json)
+                   VALUES (:1,:2,:3,:4)""",
+                ["lifecycle", "promote_to_production",
+                 f"Strategy {strategy_id} promoted to production: {current} -> production",
+                 json.dumps({"strategy_id": strategy_id, "from": current, "to": "production", "reason": reason, "manual": True})],
+            )
+
+            cursor.execute("COMMIT")
+        except Exception:
+            cursor.execute("ROLLBACK")
+            raise
+    finally:
+        conn.close()
+
+    return {"status": "SUCCESS", "from": current, "to": "production", "message": reason}
+
+
 async def demote_strategy(strategy_id: int, target: str = "failed", reason: str = "") -> dict:
+    if target not in VALID_DEMOTE_TARGETS:
+        return {
+            "status": "BLOCKED",
+            "message": f"Cannot demote to '{target}'. Allowed targets: {', '.join(sorted(VALID_DEMOTE_TARGETS))}",
+        }
+
+    if target == "production":
+        return {
+            "status": "BLOCKED",
+            "message": "Cannot demote TO production. Production requires manual approval.",
+        }
+
     conn = await acquire_conn()
     try:
         cursor = conn.cursor()
