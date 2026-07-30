@@ -77,10 +77,11 @@ async def update_pipeline_config(key: str, value) -> dict:
 async def get_pipeline_logs(limit: int = 50) -> list[dict]:
     rows = await execute_query(
         """SELECT id, started_at, finished_at, step, status, duration_ms, message, details_json, pipeline_run_id
-           FROM automation_pipeline_log ORDER BY id DESC""",
+           FROM automation_pipeline_log ORDER BY id DESC FETCH FIRST :1 ROWS ONLY""",
+        [limit],
     )
     result = []
-    for r in rows[:limit]:
+    for r in rows:
         started = r[1].isoformat() if hasattr(r[1], 'isoformat') else str(r[1]) if r[1] else ""
         finished = r[2].isoformat() if r[2] and hasattr(r[2], 'isoformat') else (str(r[2]) if r[2] else "")
         result.append({
@@ -101,7 +102,7 @@ async def get_pipeline_status() -> dict:
         steps[r[0]] = {"status": r[1], "started_at": r[2].isoformat() if hasattr(r[2], 'isoformat') else str(r[2]) if r[2] else ""}
 
     latest_run = await execute_query(
-        "SELECT pipeline_run_id, status FROM automation_pipeline_log WHERE pipeline_run_id IS NOT NULL AND pipeline_run_id != '' ORDER BY id DESC",
+        "SELECT pipeline_run_id, status FROM automation_pipeline_log WHERE pipeline_run_id IS NOT NULL AND pipeline_run_id != '' ORDER BY id DESC FETCH FIRST 1 ROWS ONLY",
     )
     last_status = latest_run[0][1] if latest_run else "never"
     last_run_id = latest_run[0][0] if latest_run else ""
