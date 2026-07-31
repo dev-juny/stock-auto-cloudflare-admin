@@ -61,11 +61,11 @@ export function StrategyPool({ strategies, onSelect }: Props) {
                 <span className="text-[10px] text-text-muted">v{s.version}</span>
                 {s.total_trades > 0 && (
                   <>
-                    <span className={`text-[10px] font-medium ${s.total_return >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                      {s.total_return >= 0 ? '+' : ''}{s.total_return.toFixed(2)}%
+                    <span className={`text-[10px] font-medium ${(s.total_return ?? 0) >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                      {(s.total_return ?? 0) >= 0 ? '+' : ''}{(s.total_return ?? 0).toFixed(2)}%
                     </span>
-                    <span className={`text-[10px] font-medium ${s.win_rate >= 50 ? 'text-green-400' : 'text-red-400'}`}>
-                      {s.win_rate.toFixed(1)}%
+                    <span className={`text-[10px] font-medium ${(s.win_rate ?? 0) >= 50 ? 'text-green-400' : 'text-red-400'}`}>
+                      {(s.win_rate ?? 0).toFixed(1)}%
                     </span>
                   </>
                 )}

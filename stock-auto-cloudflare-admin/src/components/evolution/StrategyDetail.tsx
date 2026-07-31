@@ -49,11 +49,11 @@ function DetailContent({ strategy, onClose }: Props) {
           <div className="grid grid-cols-2 gap-2">
             <StatCard label="Generation" value={`#${s.generation}`} color="text-primary" />
             <StatCard label="Version" value={`v${s.version}`} color="text-blue-400" />
-            <StatCard label="Total Return" value={s.total_trades > 0 ? `${s.total_return >= 0 ? '+' : ''}${s.total_return.toFixed(2)}%` : '-'}
-              color={s.total_return >= 0 ? 'text-green-400' : 'text-red-400'} />
-            <StatCard label="Win Rate" value={s.total_trades > 0 ? `${s.win_rate.toFixed(1)}%` : '-'}
-              color={s.win_rate >= 50 ? 'text-green-400' : 'text-red-400'} />
-            <StatCard label="Max DD" value={s.total_trades > 0 ? `${s.max_drawdown.toFixed(1)}%` : '-'} color="text-red-400" />
+            <StatCard label="Total Return" value={s.total_trades > 0 ? `${(s.total_return ?? 0) >= 0 ? '+' : ''}${(s.total_return ?? 0).toFixed(2)}%` : '-'}
+              color={(s.total_return ?? 0) >= 0 ? 'text-green-400' : 'text-red-400'} />
+            <StatCard label="Win Rate" value={s.total_trades > 0 ? `${(s.win_rate ?? 0).toFixed(1)}%` : '-'}
+              color={(s.win_rate ?? 0) >= 50 ? 'text-green-400' : 'text-red-400'} />
+            <StatCard label="Max DD" value={s.total_trades > 0 ? `${(s.max_drawdown ?? 0).toFixed(1)}%` : '-'} color="text-red-400" />
             <StatCard label="Trades" value={s.total_trades.toString()} color="text-text" />
           </div>
 

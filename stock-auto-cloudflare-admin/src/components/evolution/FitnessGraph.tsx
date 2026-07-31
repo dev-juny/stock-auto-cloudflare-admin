@@ -16,7 +16,7 @@ export function FitnessGraph({ generations, onGenClick }: Props) {
   }
 
   const sorted = [...generations].reverse()
-  const maxFitness = Math.max(...sorted.map(g => g.best_fitness), 1)
+  const maxFitness = Math.max(...sorted.map(g => g.best_fitness ?? 0), 1)
 
   return (
     <div className="bg-surface-card rounded-2xl p-4 border border-surface-border">
@@ -30,7 +30,7 @@ export function FitnessGraph({ generations, onGenClick }: Props) {
             <span className="text-[10px] text-text-muted flex items-center gap-1">
               <Activity size={10} /> Best Fitness
             </span>
-            <span className="text-[10px] text-text-muted">{sorted[sorted.length - 1]?.best_fitness.toFixed(2)}</span>
+            <span className="text-[10px] text-text-muted">{(sorted[sorted.length - 1]?.best_fitness ?? 0).toFixed(2)}</span>
           </div>
           <div className="flex items-end gap-0.5 h-16">
             {sorted.map((g, idx) => (
@@ -38,11 +38,11 @@ export function FitnessGraph({ generations, onGenClick }: Props) {
                 key={`${g.generation}-${idx}`}
                 className="flex-1 rounded-t-sm transition-all cursor-pointer hover:opacity-100"
                 style={{
-                  height: `${(g.best_fitness / maxFitness) * 100}%`,
-                  backgroundColor: g.best_fitness >= 0 ? 'rgb(34 197 94)' : 'rgb(239 68 68)',
+                  height: `${((g.best_fitness ?? 0) / maxFitness) * 100}%`,
+                  backgroundColor: (g.best_fitness ?? 0) >= 0 ? 'rgb(34 197 94)' : 'rgb(239 68 68)',
                   opacity: 0.7,
                 }}
-                title={`Gen ${g.generation}: ${g.best_fitness.toFixed(2)}`}
+                title={`Gen ${g.generation}: ${(g.best_fitness ?? 0).toFixed(2)}`}
                 onClick={() => onGenClick?.(g.generation)}
               />
             ))}

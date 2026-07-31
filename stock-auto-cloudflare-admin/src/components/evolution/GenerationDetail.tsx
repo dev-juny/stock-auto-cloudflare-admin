@@ -30,16 +30,16 @@ function ModalContent({ generation, onClose }: Props) {
         api.get<EvolutionStrategy[]>(`/api/evolution/generations/${generation}/strategies`),
         api.get<GenerationHistory>(`/api/evolution/history/${generation}`),
       ])
-      setStrategies(stratData || [])
+      setStrategies(Array.isArray(stratData) ? stratData : ((stratData as { items?: EvolutionStrategy[] } | null)?.items ?? []))
       setHistory(histData)
     } catch {}
     setLoading(false)
   }
 
   const tested = strategies.filter(s => s.total_trades > 0)
-  const avgRet = tested.length ? tested.reduce((a, s) => a + s.total_return, 0) / tested.length : 0
-  const avgWr = tested.length ? tested.reduce((a, s) => a + s.win_rate, 0) / tested.length : 0
-  const avgFitness = tested.length ? tested.reduce((a, s) => a + s.fitness_score, 0) / tested.length : 0
+  const avgRet = tested.length ? tested.reduce((a, s) => a + (s.total_return ?? 0), 0) / tested.length : 0
+  const avgWr = tested.length ? tested.reduce((a, s) => a + (s.win_rate ?? 0), 0) / tested.length : 0
+  const avgFitness = tested.length ? tested.reduce((a, s) => a + (s.fitness_score ?? 0), 0) / tested.length : 0
   const universe = history?.evaluation_universe || []
 
   return (
@@ -63,9 +63,9 @@ function ModalContent({ generation, onClose }: Props) {
           <>
             <div className="grid grid-cols-4 gap-2 p-3 bg-surface/50">
               {[
-                { label: 'Return', value: `${avgRet >= 0 ? '+' : ''}${avgRet.toFixed(2)}%`, icon: TrendingUp, color: avgRet >= 0 ? 'text-green-400' : 'text-red-400' },
-                { label: 'Win Rate', value: `${avgWr.toFixed(1)}%`, icon: Percent, color: 'text-blue-400' },
-                { label: 'Fitness', value: avgFitness.toFixed(2), icon: Activity, color: 'text-amber-400' },
+                { label: 'Return', value: `${avgRet >= 0 ? '+' : ''}${(avgRet ?? 0).toFixed(2)}%`, icon: TrendingUp, color: avgRet >= 0 ? 'text-green-400' : 'text-red-400' },
+                { label: 'Win Rate', value: `${(avgWr ?? 0).toFixed(1)}%`, icon: Percent, color: 'text-blue-400' },
+                { label: 'Fitness', value: (avgFitness ?? 0).toFixed(2), icon: Activity, color: 'text-amber-400' },
                 { label: 'Universe', value: String(universe.length), icon: Target, color: 'text-primary' },
               ].map(m => {
                 const Icon = m.icon
@@ -169,12 +169,12 @@ function ModalContent({ generation, onClose }: Props) {
                         {strategies.map(s => (
                           <tr key={s.id} className="hover:bg-surface/50 transition-colors">
                             <td className="px-4 py-2 text-text font-medium">{s.name}</td>
-                            <td className="px-2 py-2 text-right text-amber-400">{s.fitness_score.toFixed(2)}</td>
-                            <td className={`px-2 py-2 text-right ${s.total_return >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                              {s.total_return >= 0 ? '+' : ''}{s.total_return.toFixed(2)}%
+                            <td className="px-2 py-2 text-right text-amber-400">{(s.fitness_score ?? 0).toFixed(2)}</td>
+                            <td className={`px-2 py-2 text-right ${(s.total_return ?? 0) >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                              {(s.total_return ?? 0) >= 0 ? '+' : ''}{(s.total_return ?? 0).toFixed(2)}%
                             </td>
-                            <td className="px-2 py-2 text-right text-blue-400">{s.win_rate.toFixed(1)}%</td>
-                            <td className="px-2 py-2 text-right text-red-400">{s.max_drawdown.toFixed(2)}%</td>
+                            <td className="px-2 py-2 text-right text-blue-400">{(s.win_rate ?? 0).toFixed(1)}%</td>
+                            <td className="px-2 py-2 text-right text-red-400">{(s.max_drawdown ?? 0).toFixed(2)}%</td>
                             <td className="px-2 py-2 text-right text-text-muted">{s.total_trades}</td>
                           </tr>
                         ))}

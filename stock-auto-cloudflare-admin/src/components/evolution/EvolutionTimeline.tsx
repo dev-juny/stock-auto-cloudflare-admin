@@ -66,11 +66,11 @@ export function EvolutionTimeline({ generations, onGenClick, compareMode, compar
               </span>
             </div>
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 mt-2">
-              <Metric icon={BarChart3} label="Avg Fitness" value={g.avg_fitness.toFixed(2)} color="text-green-400" />
-              <Metric icon={ArrowUpDown} label="Best Fitness" value={g.best_fitness.toFixed(2)} color="text-amber-400" />
-              <Metric icon={TrendingUp} label="Avg Return" value={`${g.avg_return >= 0 ? '+' : ''}${g.avg_return.toFixed(2)}%`} color={g.avg_return >= 0 ? 'text-green-400' : 'text-red-400'} />
-              <Metric icon={Percent} label="Avg Win Rate" value={`${g.avg_winrate.toFixed(1)}%`} color="text-blue-400" />
-              <Metric icon={TrendingDown} label="Avg MDD" value={`${g.avg_mdd.toFixed(2)}%`} color="text-red-400" />
+              <Metric icon={BarChart3} label="Avg Fitness" value={(g.avg_fitness ?? 0).toFixed(2)} color="text-green-400" />
+              <Metric icon={ArrowUpDown} label="Best Fitness" value={(g.best_fitness ?? 0).toFixed(2)} color="text-amber-400" />
+              <Metric icon={TrendingUp} label="Avg Return" value={`${(g.avg_return ?? 0) >= 0 ? '+' : ''}${(g.avg_return ?? 0).toFixed(2)}%`} color={(g.avg_return ?? 0) >= 0 ? 'text-green-400' : 'text-red-400'} />
+              <Metric icon={Percent} label="Avg Win Rate" value={`${(g.avg_winrate ?? 0).toFixed(1)}%`} color="text-blue-400" />
+              <Metric icon={TrendingDown} label="Avg MDD" value={`${(g.avg_mdd ?? 0).toFixed(2)}%`} color="text-red-400" />
               <div className="flex items-center gap-1.5 bg-surface rounded-lg px-2 py-1.5">
                 <GitBranch size={10} className="text-text-muted" />
                 <div className="flex-1">

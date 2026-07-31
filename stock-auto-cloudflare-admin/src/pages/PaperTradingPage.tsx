@@ -638,7 +638,7 @@ export default function PaperTradingPage() {
                 <>
                   <div className="text-xs font-medium text-text truncate">{status.best_position.name || status.best_position.ticker}</div>
                   <div className="text-[10px] font-mono text-green-400">
-                    +{status.best_position.pnl_pct.toFixed(2)}% ₩+{Math.abs(status.best_position.pnl_amt).toLocaleString()}
+                    +{(status.best_position.pnl_pct ?? 0).toFixed(2)}% ₩+{Math.abs(status.best_position.pnl_amt ?? 0).toLocaleString()}
                   </div>
                 </>
               ) : (
@@ -650,8 +650,8 @@ export default function PaperTradingPage() {
               {status.worst_position ? (
                 <>
                   <div className="text-xs font-medium text-text truncate">{status.worst_position.name || status.worst_position.ticker}</div>
-                  <div className={`text-[10px] font-mono ${status.worst_position.pnl_pct >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                    {status.worst_position.pnl_pct >= 0 ? '+' : ''}{status.worst_position.pnl_pct.toFixed(2)}% {status.worst_position.pnl_amt >= 0 ? '+' : ''}₩{Math.abs(status.worst_position.pnl_amt).toLocaleString()}
+                  <div className={`text-[10px] font-mono ${(status.worst_position.pnl_pct ?? 0) >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                    {(status.worst_position.pnl_pct ?? 0) >= 0 ? '+' : ''}{(status.worst_position.pnl_pct ?? 0).toFixed(2)}% {(status.worst_position.pnl_amt ?? 0) >= 0 ? '+' : ''}₩{Math.abs(status.worst_position.pnl_amt ?? 0).toLocaleString()}
                   </div>
                 </>
               ) : (

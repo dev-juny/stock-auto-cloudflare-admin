@@ -120,8 +120,8 @@ export default function PortfolioPage() {
   }
 
   const totalAlloc = strategies?.total_allocation || 0
-  const maxVal = btResult?.daily_values?.length ? Math.max(...btResult.daily_values.map(d => d.value), btResult.initial_capital) : 0
-  const minVal = btResult?.daily_values?.length ? Math.min(...btResult.daily_values.map(d => d.value), btResult.initial_capital) : 0
+  const maxVal = btResult?.daily_values?.length ? Math.max(...btResult.daily_values.map(d => d.value ?? 0), btResult.initial_capital ?? 0) : 0
+  const minVal = btResult?.daily_values?.length ? Math.min(...btResult.daily_values.map(d => d.value ?? 0), btResult.initial_capital ?? 0) : 0
 
   return (
     <div className="space-y-4">
@@ -234,34 +234,34 @@ export default function PortfolioPage() {
                       <Tooltip content={findGlossary('return')?.description ?? 'Return'}>
                         <span className="text-text-muted">Return</span>
                       </Tooltip>
-                      <p className={`text-sm font-bold ${btResult.return_pct >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                        {btResult.return_pct >= 0 ? '+' : ''}{btResult.return_pct.toFixed(2)}%
+                      <p className={`text-sm font-bold ${(btResult.return_pct ?? 0) >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                        {(btResult.return_pct ?? 0) >= 0 ? '+' : ''}{(btResult.return_pct ?? 0).toFixed(2)}%
                       </p>
                     </div>
                     <div className="bg-surface rounded-xl p-2">
                       <Tooltip content={findGlossary('winRate')?.description ?? 'Win Rate'}>
                         <span className="text-text-muted">Win Rate</span>
                       </Tooltip>
-                      <p className="text-sm font-bold text-blue-400">{btResult.win_rate.toFixed(1)}%</p>
+                      <p className="text-sm font-bold text-blue-400">{(btResult.win_rate ?? 0).toFixed(1)}%</p>
                     </div>
                     <div className="bg-surface rounded-xl p-2">
                       <Tooltip content={findGlossary('mdd')?.description ?? 'MDD'}>
                         <span className="text-text-muted">MDD</span>
                       </Tooltip>
-                      <p className="text-sm font-bold text-red-400">{btResult.mdd.toFixed(2)}%</p>
+                      <p className="text-sm font-bold text-red-400">{(btResult.mdd ?? 0).toFixed(2)}%</p>
                     </div>
                     <div className="bg-surface rounded-xl p-2">
                       <Tooltip content={findGlossary('sharpe')?.description ?? 'Sharpe'}>
                         <span className="text-text-muted">Sharpe</span>
                       </Tooltip>
-                      <p className="text-sm font-bold text-amber-400">{btResult.sharpe_ratio.toFixed(2)}</p>
+                      <p className="text-sm font-bold text-amber-400">{(btResult.sharpe_ratio ?? 0).toFixed(2)}</p>
                     </div>
                     <div className="bg-surface rounded-xl p-2">
                       <Tooltip content={findGlossary('cagr')?.description ?? 'CAGR'}>
                         <span className="text-text-muted">CAGR</span>
                       </Tooltip>
-                      <p className={`text-sm font-bold ${btResult.cagr >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                        {btResult.cagr >= 0 ? '+' : ''}{btResult.cagr.toFixed(2)}%
+                      <p className={`text-sm font-bold ${(btResult.cagr ?? 0) >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                        {(btResult.cagr ?? 0) >= 0 ? '+' : ''}{(btResult.cagr ?? 0).toFixed(2)}%
                       </p>
                     </div>
                     <div className="bg-surface rounded-xl p-2">
@@ -281,7 +281,7 @@ export default function PortfolioPage() {
                           return (
                             <div key={i} className="flex-1 rounded-t-sm bg-primary/60 hover:bg-primary/80 transition-colors"
                               style={{ height: `${Math.max(h, 2)}%` }}
-                              title={`${d.date}: ₩${d.value.toLocaleString()}`} />
+                              title={`${d.date}: ₩${(d.value ?? 0).toLocaleString()}`} />
                           )
                         })}
                       </div>
@@ -290,7 +290,7 @@ export default function PortfolioPage() {
 
                   <div className="text-[10px] text-text-muted">
                     Strategies tested: {btResult.strategies_tested} &middot; Tickers screened: {btResult.tickers_screened} &middot;
-                    Capital: ₩{btResult.initial_capital.toLocaleString()} → ₩{btResult.final_value.toLocaleString()}
+                    Capital: ₩{(btResult.initial_capital ?? 0).toLocaleString()} → ₩{(btResult.final_value ?? 0).toLocaleString()}
                   </div>
                 </div>
               )}
@@ -311,13 +311,13 @@ export default function PortfolioPage() {
                     </div>
                     <div className="flex gap-3">
                       <Tooltip content={findGlossary('return')?.description ?? 'Return'}>
-                        <span className={h.return_pct >= 0 ? 'text-green-400' : 'text-red-400'}>{h.return_pct >= 0 ? '+' : ''}{h.return_pct.toFixed(1)}%</span>
+                        <span className={(h.return_pct ?? 0) >= 0 ? 'text-green-400' : 'text-red-400'}>{(h.return_pct ?? 0) >= 0 ? '+' : ''}{(h.return_pct ?? 0).toFixed(1)}%</span>
                       </Tooltip>
                       <Tooltip content={findGlossary('mdd')?.description ?? 'MDD'}>
-                        <span className="text-text-muted">MDD {h.mdd.toFixed(1)}%</span>
+                        <span className="text-text-muted">MDD {(h.mdd ?? 0).toFixed(1)}%</span>
                       </Tooltip>
                       <Tooltip content={findGlossary('sharpe')?.description ?? 'Sharpe'}>
-                        <span className="text-amber-400">Sharpe {h.sharpe_ratio.toFixed(2)}</span>
+                        <span className="text-amber-400">Sharpe {(h.sharpe_ratio ?? 0).toFixed(2)}</span>
                       </Tooltip>
                     </div>
                   </div>

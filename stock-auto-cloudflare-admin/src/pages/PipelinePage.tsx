@@ -434,7 +434,7 @@ export default function PipelinePage() {
                   </span>
                   {log.duration_ms > 0 && (
                     <span className="text-[10px] text-text-muted">
-                      {(log.duration_ms / 1000).toFixed(1)}s
+                      {((log.duration_ms ?? 0) / 1000).toFixed(1)}s
                     </span>
                   )}
                   {log.message && (

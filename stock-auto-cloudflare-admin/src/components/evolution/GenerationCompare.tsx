@@ -42,7 +42,7 @@ function CompareContent({ genA, genB, onClose }: Props) {
     return (
       <span className={`inline-flex items-center gap-0.5 font-medium ${isZero ? 'text-text-muted' : isPos ? 'text-green-400' : 'text-red-400'}`}>
         {isZero ? <Minus size={12} /> : isPos ? <ArrowUpRight size={12} /> : <ArrowDownRight size={12} />}
-        {isPos ? '+' : ''}{val.toFixed(2)}{suffix}
+        {isPos ? '+' : ''}{(val ?? 0).toFixed(2)}{suffix}
       </span>
     )
   }
@@ -68,15 +68,15 @@ function CompareContent({ genA, genB, onClose }: Props) {
         ) : (
           <div className="overflow-y-auto flex-1 p-4 space-y-4">
             <div className="grid grid-cols-2 gap-4">
-              {[result.gen_a, result.gen_b].map(gen => (
+              {[result.gen_a, result.gen_b].filter((g): g is typeof result.gen_a => !!g).map(gen => (
                 <div key={gen.generation} className="bg-surface rounded-xl p-4">
                   <div className="text-[11px] font-semibold text-text-muted mb-3">Gen {gen.generation}</div>
                   <div className="space-y-2">
                     {[
-                      { label: 'Fitness', value: gen.avg_fitness.toFixed(2) },
-                      { label: 'Return', value: `${gen.avg_return >= 0 ? '+' : ''}${gen.avg_return.toFixed(2)}%` },
-                      { label: 'Win Rate', value: `${gen.avg_winrate.toFixed(1)}%` },
-                      { label: 'MDD', value: `${gen.avg_mdd.toFixed(2)}%` },
+                      { label: 'Fitness', value: (gen.avg_fitness ?? 0).toFixed(2) },
+                      { label: 'Return', value: `${(gen.avg_return ?? 0) >= 0 ? '+' : ''}${(gen.avg_return ?? 0).toFixed(2)}%` },
+                      { label: 'Win Rate', value: `${(gen.avg_winrate ?? 0).toFixed(1)}%` },
+                      { label: 'MDD', value: `${(gen.avg_mdd ?? 0).toFixed(2)}%` },
                       { label: 'Strategies', value: String(gen.count) },
                     ].map(({ label, value }) => (
                       <div key={label} className="flex justify-between text-xs">
@@ -97,15 +97,15 @@ function CompareContent({ genA, genB, onClose }: Props) {
               <div className="grid grid-cols-3 gap-3">
                 <div className="bg-surface-card rounded-lg p-3">
                   <div className="text-[10px] text-text-muted mb-1">Return</div>
-                  <Delta val={result.gen_b.avg_return - result.gen_a.avg_return} suffix="%" />
+                  <Delta val={(result.gen_b?.avg_return ?? 0) - (result.gen_a?.avg_return ?? 0)} suffix="%" />
                 </div>
                 <div className="bg-surface-card rounded-lg p-3">
                   <div className="text-[10px] text-text-muted mb-1">Win Rate</div>
-                  <Delta val={result.gen_b.avg_winrate - result.gen_a.avg_winrate} suffix="%" />
+                  <Delta val={(result.gen_b?.avg_winrate ?? 0) - (result.gen_a?.avg_winrate ?? 0)} suffix="%" />
                 </div>
                 <div className="bg-surface-card rounded-lg p-3">
                   <div className="text-[10px] text-text-muted mb-1">Fitness</div>
-                  <Delta val={result.gen_b.avg_fitness - result.gen_a.avg_fitness} />
+                  <Delta val={(result.gen_b?.avg_fitness ?? 0) - (result.gen_a?.avg_fitness ?? 0)} />
                 </div>
               </div>
             </div>

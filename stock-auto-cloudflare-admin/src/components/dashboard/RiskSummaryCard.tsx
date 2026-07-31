@@ -28,9 +28,9 @@ export function RiskSummaryCard({ dash, loading }: Props) {
   }
 
   const blocked = risk.blocked
-  const exposure = system?.exposure_pct ?? risk.exposure_pct
-  const cashRatio = risk.cash_ratio
-  const allowed = risk.max_capital_deployment
+  const exposure = system?.exposure_pct ?? risk.exposure_pct ?? 0
+  const cashRatio = risk.cash_ratio ?? 0
+  const allowed = risk.max_capital_deployment ?? 0
 
   function barColor(pct: number) {
     if (pct > 80) return '#ef4444'
@@ -110,11 +110,11 @@ export function RiskSummaryCard({ dash, loading }: Props) {
             </div>
             <div className="flex items-center justify-between text-[10px] mb-0.5">
               <span className="text-danger/60">Exposure</span>
-              <span className="text-danger font-mono tabular-nums">{risk.exposure_pct.toFixed(1)}%</span>
+              <span className="text-danger font-mono tabular-nums">{(risk.exposure_pct ?? 0).toFixed(1)}%</span>
             </div>
             <div className="flex items-center justify-between text-[10px]">
               <span className="text-danger/60">Allowed</span>
-              <span className="text-amber-400 font-mono tabular-nums">{risk.max_capital_deployment.toFixed(1)}%</span>
+              <span className="text-amber-400 font-mono tabular-nums">{(risk.max_capital_deployment ?? 0).toFixed(1)}%</span>
             </div>
             {risk.risk_reject_count > 0 && (
               <div className="flex items-center justify-between text-[10px] mt-1 pt-1 border-t border-danger/10">
