@@ -390,13 +390,17 @@ export interface RiskCheckResult {
   available_exposure_pct: number
   cash_ratio: number
   single_asset_ratio: number
+  highest_concentration_ticker: string
   consecutive_losses: number
   portfolio_mdd: number
   avg_unrealized_pnl: number
   max_capital_deployment: number
   min_cash_ratio: number
   max_exposure: number
+  max_position_allocation: number
   risk_reject_count: number
+  exposure_reject_count: number
+  position_allocation_reject_count: number
   last_risk_reason: string
 }
 

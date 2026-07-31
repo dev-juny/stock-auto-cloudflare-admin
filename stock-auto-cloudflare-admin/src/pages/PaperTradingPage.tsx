@@ -955,7 +955,7 @@ export default function PaperTradingPage() {
                               />
                             </div>
                             <div className={`text-[11px] font-bold font-mono tabular-nums ${p.pnl_pct >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                              {p.pnl_pct >= 0 ? '+' : ''}{p.pnl_pct.toFixed(1)}%
+                              {p.pnl_pct >= 0 ? '+' : ''}{(p.pnl_pct ?? 0).toFixed(1)}%
                             </div>
                           </div>
                           <div className={`text-[9px] font-mono tabular-nums ${p.pnl_amt >= 0 ? 'text-green-400/70' : 'text-red-400/70'}`}>
@@ -1000,7 +1000,7 @@ export default function PaperTradingPage() {
                         <span className="text-[10px] text-text-muted bg-surface-border/30 px-1.5 py-0.5 rounded">S{p.strategy_id}</span>
                       </div>
                       <div className={`text-sm font-bold font-mono tabular-nums ${p.pnl_pct >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                        {p.pnl_pct >= 0 ? '+' : ''}{p.pnl_pct.toFixed(1)}%
+                        {p.pnl_pct >= 0 ? '+' : ''}{(p.pnl_pct ?? 0).toFixed(1)}%
                       </div>
                     </div>
                     <div className="grid grid-cols-3 gap-2 text-[10px] text-text-muted">
@@ -1089,7 +1089,7 @@ export default function PaperTradingPage() {
                         </td>
                         <td className="px-3 py-2.5 text-right">
                           <span className={`text-[11px] font-bold font-mono tabular-nums ${p.pnl_pct >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                            {p.pnl_pct >= 0 ? '+' : ''}{p.pnl_pct.toFixed(1)}%
+                            {p.pnl_pct >= 0 ? '+' : ''}{(p.pnl_pct ?? 0).toFixed(1)}%
                           </span>
                         </td>
                         <td className="px-2 py-2.5 text-right">
@@ -1124,7 +1124,7 @@ export default function PaperTradingPage() {
                 <span className="text-text font-medium">{formatStockDisplay(t.name, t.ticker)}</span>
                 <span className="text-text-muted">₩{t.price.toLocaleString()} x {t.quantity}</span>
                 {t.pnl_pct !== 0 && (
-                  <span className={t.pnl_pct >= 0 ? 'text-green-400' : 'text-red-400'}>{t.pnl_pct >= 0 ? '+' : ''}{t.pnl_pct.toFixed(2)}%</span>
+                  <span className={t.pnl_pct >= 0 ? 'text-green-400' : 'text-red-400'}>{t.pnl_pct >= 0 ? '+' : ''}{(t.pnl_pct ?? 0).toFixed(2)}%</span>
                 )}
                 {t.pnl_amt != null && t.pnl_amt !== 0 && (
                   <span className={`font-mono tabular-nums text-[10px] ${t.pnl_amt >= 0 ? 'text-green-400/70' : 'text-red-400/70'}`}>

@@ -10,7 +10,7 @@ import { findGlossary } from '../utils/glossary'
 import {
   Shield, ShieldAlert, AlertTriangle, XCircle, Info,
   TrendingUp, TrendingDown, DollarSign, Percent, Ban, Gauge,
-  ArrowUp, ArrowDown, RefreshCw, Save, BarChart3,
+  ArrowUp, ArrowDown, RefreshCw, Save, BarChart3, Lock, Unlock,
 } from 'lucide-react'
 
 interface RiskSettings {
@@ -24,6 +24,26 @@ interface RiskSettings {
 interface ScanSettings {
   max_strategies: number
   max_tickers_per_strategy: number
+}
+
+function barColor(pct: number) {
+  if (pct > 80) return 'bg-red-500'
+  if (pct > 60) return 'bg-amber-500'
+  return 'bg-green-500'
+}
+
+function textColor(pct: number) {
+  if (pct > 80) return 'text-red-400'
+  if (pct > 60) return 'text-amber-400'
+  return 'text-green-400'
+}
+
+function concentrationStatus(current: number, limit: number): { label: string; color: string; bg: string } {
+  const ratio = limit > 0 ? current / limit : 0
+  if (current <= limit * 0.8) return { label: 'NORMAL', color: 'text-green-400', bg: 'bg-green-500/15' }
+  if (current <= limit) return { label: 'WARNING', color: 'text-amber-400', bg: 'bg-amber-500/15' }
+  if (current <= limit * 3) return { label: 'BUY RESTRICTED', color: 'text-red-400', bg: 'bg-red-500/15' }
+  return { label: 'HIGH CONCENTRATION', color: 'text-red-400', bg: 'bg-red-500/20' }
 }
 
 export default function RiskPage() {
@@ -113,17 +133,12 @@ export default function RiskPage() {
   const remainingCapacity = Math.max(0, maxExposureAmt - totalExposure)
   const exceededBy = blocked ? Math.max(0, totalExposure - maxExposureAmt) : 0
 
-  function barColor(pct: number) {
-    if (pct > 80) return 'bg-red-500'
-    if (pct > 60) return 'bg-amber-500'
-    return 'bg-green-500'
-  }
-
-  function textColor(pct: number) {
-    if (pct > 80) return 'text-red-400'
-    if (pct > 60) return 'text-amber-400'
-    return 'text-green-400'
-  }
+  const singleAssetRatio = riskData?.single_asset_ratio ?? 0
+  const maxPosAlloc = riskData?.max_position_allocation ?? settings?.max_position_allocation ?? 10
+  const highestTicker = riskData?.highest_concentration_ticker ?? ''
+  const concStatus = concentrationStatus(singleAssetRatio, maxPosAlloc)
+  const concExceeded = singleAssetRatio > maxPosAlloc
+  const concProgress = Math.min(100, (singleAssetRatio / Math.max(maxPosAlloc, 1)) * 100)
 
   return (
     <div className="space-y-4">
@@ -133,24 +148,23 @@ export default function RiskPage() {
         </button>
       </div>
 
-      {/* Exposure Summary */}
+      {/* ── Portfolio Exposure ────────────────────────────────── */}
       <Card>
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-2">
             <BarChart3 size={16} className={blocked ? 'text-red-400' : 'text-primary'} />
-            <span className="text-sm font-semibold text-text">Exposure</span>
+            <span className="text-sm font-semibold text-text">Portfolio Exposure</span>
           </div>
           <span className={`text-[10px] px-2 py-1 rounded-full font-medium ${
             blocked ? 'bg-red-500/15 text-red-400' : 'bg-green-500/15 text-green-400'
           }`}>
-            {blocked ? 'LIMIT REACHED' : 'ACTIVE'}
+            {blocked ? 'ALL BUY BLOCKED' : 'ACTIVE'}
           </span>
         </div>
 
-        {/* Current / Allowed side by side */}
         <div className="grid grid-cols-2 gap-4 mb-4">
           <div className="bg-surface rounded-xl p-3">
-            <div className="text-[10px] text-text-muted/60">Current</div>
+            <div className="text-[10px] text-text-muted/60">Current Exposure</div>
             <div className={`text-lg font-bold font-mono tabular-nums ${textColor(exposurePct)}`}>
               {exposurePct.toFixed(1)}%
             </div>
@@ -159,7 +173,7 @@ export default function RiskPage() {
             </div>
           </div>
           <div className="bg-surface rounded-xl p-3">
-            <div className="text-[10px] text-text-muted/60">Allowed</div>
+            <div className="text-[10px] text-text-muted/60">Max Allowed</div>
             <div className="text-lg font-bold font-mono tabular-nums text-text">
               {maxDeployPct.toFixed(1)}%
             </div>
@@ -169,7 +183,6 @@ export default function RiskPage() {
           </div>
         </div>
 
-        {/* Progress Bars */}
         <div className="space-y-2 mb-4">
           <div>
             <div className="flex items-center justify-between text-[10px] text-text-muted mb-1">
@@ -179,7 +192,6 @@ export default function RiskPage() {
             <div className="relative w-full h-3 bg-surface rounded-full overflow-hidden">
               <div className={`h-full rounded-full transition-all ${barColor(exposurePct)}`}
                 style={{ width: `${Math.min(100, exposurePct)}%` }} />
-              {/* Allowed marker line */}
               <div className="absolute top-0 w-0.5 h-full bg-white/40"
                 style={{ left: `${Math.min(100, maxDeployPct)}%` }} />
             </div>
@@ -196,7 +208,6 @@ export default function RiskPage() {
           </div>
         </div>
 
-        {/* Remaining / Exceeded */}
         <div className="grid grid-cols-2 gap-3">
           <div className="bg-surface rounded-xl p-3">
             <div className="flex items-center gap-1 text-[10px] text-text-muted/60 mb-1">
@@ -221,7 +232,89 @@ export default function RiskPage() {
         </div>
       </Card>
 
-      {/* Risk Status & BLOCKED */}
+      {/* ── Position Concentration ────────────────────────────── */}
+      <Card className={concExceeded ? '!border-amber-500/30 !bg-amber-500/5' : ''}>
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-2">
+            <Gauge size={16} className={concExceeded ? 'text-amber-400' : 'text-primary'} />
+            <span className="text-sm font-semibold text-text">Position Concentration</span>
+          </div>
+          <span className={`text-[10px] px-2 py-1 rounded-full font-medium ${concStatus.bg} ${concStatus.color}`}>
+            {concStatus.label}
+          </span>
+        </div>
+
+        {highestTicker && (
+          <div className="bg-surface rounded-xl p-3 mb-4">
+            <div className="text-[10px] text-text-muted/60 mb-1">Highest Concentration</div>
+            <div className="text-sm font-bold text-text">{highestTicker}</div>
+          </div>
+        )}
+
+        <div className="grid grid-cols-2 gap-4 mb-4">
+          <div className="bg-surface rounded-xl p-3">
+            <div className="text-[10px] text-text-muted/60">Current Allocation</div>
+            <div className={`text-lg font-bold font-mono tabular-nums ${concExceeded ? 'text-red-400' : 'text-green-400'}`}>
+              {singleAssetRatio.toFixed(1)}%
+            </div>
+          </div>
+          <div className="bg-surface rounded-xl p-3">
+            <div className="text-[10px] text-text-muted/60">Maximum Allowed</div>
+            <div className="text-lg font-bold font-mono tabular-nums text-text">
+              {maxPosAlloc.toFixed(1)}%
+            </div>
+          </div>
+        </div>
+
+        <div className="mb-4">
+          <div className="flex items-center justify-between text-[10px] text-text-muted mb-1">
+            <span>Allocation vs Limit</span>
+            <span className={`font-mono tabular-nums ${concExceeded ? 'text-red-400' : 'text-green-400'}`}>
+              {singleAssetRatio.toFixed(1)}% / {maxPosAlloc.toFixed(1)}%
+            </span>
+          </div>
+          <div className="relative w-full h-3 bg-surface rounded-full overflow-hidden">
+            <div className={`h-full rounded-full transition-all ${concExceeded ? 'bg-red-500' : 'bg-green-500'}`}
+              style={{ width: `${concProgress}%` }} />
+            <div className="absolute top-0 w-0.5 h-full bg-white/40"
+              style={{ left: '100%' }} />
+          </div>
+        </div>
+
+        {concExceeded && (
+          <div className="bg-surface rounded-xl p-3 !border-red-500/20 !border">
+            <div className="flex items-center gap-1 text-[10px] text-red-400/60 mb-1">
+              <ArrowDown size={10} />
+              <span>Exceeded By</span>
+            </div>
+            <div className="text-sm font-bold font-mono tabular-nums text-red-400">
+              {(singleAssetRatio - maxPosAlloc).toFixed(1)}%p
+            </div>
+          </div>
+        )}
+
+        <div className="mt-3 flex items-start gap-2 text-xs px-3 py-2.5 rounded-lg bg-surface">
+          {concExceeded ? (
+            <>
+              <Lock size={14} className="shrink-0 mt-0.5 text-amber-400" />
+              <div>
+                <p className="font-medium text-amber-400">BUY RESTRICTED for {highestTicker}</p>
+                <p className="text-text-muted mt-0.5">Position allocation ({singleAssetRatio.toFixed(1)}%) exceeds configured limit ({maxPosAlloc.toFixed(1)}%). New BUY orders for this asset will be rejected. SELL orders remain allowed.</p>
+              </div>
+            </>
+          ) : (
+            <>
+              <Unlock size={14} className="shrink-0 mt-0.5 text-green-400" />
+              <div>
+                <p className="font-medium text-green-400">Position allocation within limits</p>
+                <p className="text-text-muted mt-0.5">Current allocation ({singleAssetRatio.toFixed(1)}%) is within the configured limit ({maxPosAlloc.toFixed(1)}%).</p>
+              </div>
+            </>
+          )}
+        </div>
+      </Card>
+
+      {/* ── Risk Status & Order-Level Restrictions ────────────── */}
       <Card className={blocked ? '!border-red-500/30 !bg-red-500/5' : ''}>
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-2">
@@ -244,19 +337,30 @@ export default function RiskPage() {
             <div className="flex items-start gap-2 text-xs text-red-400/80 bg-red-500/8 rounded-lg px-3 py-2.5">
               <AlertTriangle size={14} className="shrink-0 mt-0.5" />
               <div>
-                <p className="font-medium text-red-400">BUY Blocked</p>
-                <p className="text-red-400/60 mt-0.5">Exposure ({exposurePct.toFixed(1)}%) exceeds configured limit ({maxDeployPct.toFixed(1)}%). New buy orders are restricted until exposure decreases through sell trades or portfolio value increases.</p>
+                <p className="font-medium text-red-400">All BUY Blocked</p>
+                <p className="text-red-400/60 mt-0.5">Exposure ({exposurePct.toFixed(1)}%) exceeds configured limit ({maxDeployPct.toFixed(1)}%). New buy orders are restricted across all assets until exposure decreases.</p>
               </div>
             </div>
           ) : (
             <div className="flex items-start gap-2 text-xs text-green-400/80 bg-green-500/8 rounded-lg px-3 py-2.5">
               <Shield size={14} className="shrink-0 mt-0.5" />
               <div>
-                <p className="font-medium text-green-400">Trading Active</p>
-                <p className="text-green-400/60 mt-0.5">Portfolio is within configured risk limits. New buy orders will be evaluated against exposure constraints.</p>
+                <p className="font-medium text-green-400">Portfolio Risk: PASS</p>
+                <p className="text-green-400/60 mt-0.5">Portfolio is within configured risk limits. Individual orders may still be restricted by position concentration limits.</p>
               </div>
             </div>
           )}
+
+          {!blocked && concExceeded && (
+            <div className="flex items-start gap-2 text-xs text-amber-400/80 bg-amber-500/8 rounded-lg px-3 py-2.5">
+              <Lock size={14} className="shrink-0 mt-0.5" />
+              <div>
+                <p className="font-medium text-amber-400">Order-Level Restriction Active</p>
+                <p className="text-amber-400/60 mt-0.5">{highestTicker} BUY rejected: {singleAssetRatio.toFixed(1)}% {'>'} {maxPosAlloc.toFixed(1)}% position allocation limit. Other assets remain tradeable.</p>
+              </div>
+            </div>
+          )}
+
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
             <div className="bg-surface rounded-lg p-2">
               <div className="text-[9px] text-text-muted/60">Exposure</div>
@@ -278,7 +382,31 @@ export default function RiskPage() {
         </div>
       </Card>
 
-      {/* Daily P&L */}
+      {/* ── Today's Risk Rejections ────────────────────────────── */}
+      {(riskData?.risk_reject_count ?? 0) > 0 && (
+        <Card>
+          <div className="flex items-center gap-2 mb-3">
+            <Ban size={14} className="text-red-400" />
+            <span className="text-xs font-semibold text-text-muted uppercase tracking-wider">Today's Risk Rejections</span>
+          </div>
+          <div className="grid grid-cols-3 gap-3">
+            <div className="bg-surface rounded-xl p-3">
+              <div className="text-[10px] text-text-muted/60">Total Rejected</div>
+              <div className="text-sm font-bold font-mono tabular-nums text-red-400">{riskData?.risk_reject_count ?? 0}</div>
+            </div>
+            <div className="bg-surface rounded-xl p-3">
+              <div className="text-[10px] text-text-muted/60">Exposure Limit</div>
+              <div className="text-sm font-bold font-mono tabular-nums text-amber-400">{riskData?.exposure_reject_count ?? 0}</div>
+            </div>
+            <div className="bg-surface rounded-xl p-3">
+              <div className="text-[10px] text-text-muted/60">Position Allocation</div>
+              <div className="text-sm font-bold font-mono tabular-nums text-amber-400">{riskData?.position_allocation_reject_count ?? 0}</div>
+            </div>
+          </div>
+        </Card>
+      )}
+
+      {/* ── Daily P&L ─────────────────────────────────────────── */}
       <Card>
         <div className="text-xs font-semibold text-text-muted uppercase tracking-wider mb-3">Daily P&L</div>
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
@@ -315,7 +443,7 @@ export default function RiskPage() {
         </div>
       </Card>
 
-      {/* Risk Settings */}
+      {/* ── Risk Settings ─────────────────────────────────────── */}
       <Card>
         <div className="flex items-center justify-between mb-3">
           <h3 className="text-xs font-semibold text-text-muted uppercase tracking-wider">Risk Settings</h3>
@@ -416,7 +544,7 @@ export default function RiskPage() {
         )}
       </Card>
 
-      {/* Scan Settings */}
+      {/* ── Scan Settings ─────────────────────────────────────── */}
       <Card>
         <div className="flex items-center justify-between mb-3">
           <h3 className="text-xs font-semibold text-text-muted uppercase tracking-wider">Scan Settings</h3>

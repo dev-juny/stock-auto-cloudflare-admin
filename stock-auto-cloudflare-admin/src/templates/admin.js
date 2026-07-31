@@ -1,1 +1,0 @@
-export { adminHtml } from './html';

@@ -25,6 +25,7 @@ const SchedulerPage = lazy(() => import('./pages/scheduler/SchedulerPage'))
 const RiskPage = lazy(() => import('./pages/RiskPage'))
 const ValidationDashboardPage = lazy(() => import('./pages/ValidationDashboardPage'))
 const ProductionDashboard = lazy(() => import('./pages/ProductionDashboard'))
+const PipelinePage = lazy(() => import('./pages/PipelinePage'))
 
 function PageFallback() {
   return (
@@ -101,6 +102,7 @@ export default function App() {
             {activeTab === 'risk' && <RiskPage />}
             {activeTab === 'validation' && <ValidationDashboardPage />}
             {activeTab === 'production' && <ProductionDashboard />}
+            {activeTab === 'pipeline' && <PipelinePage />}
           </Suspense>
         </main>
         <BottomNavigation active={activeTab} onChange={setActiveTab} />

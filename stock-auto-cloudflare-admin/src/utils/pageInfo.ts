@@ -60,4 +60,9 @@ export const PAGE_INFO: Record<string, PageInfo> = {
     description: '최종 생존 전략의 생애주기를 관리하고 실거래 전략을 선정합니다.',
     helpKey: 'production',
   },
+  pipeline: {
+    title: '파이프라인(Pipeline)',
+    description: '전략 자동 생명주기 파이프라인을 모니터링하고 관리합니다. 진화→승격→모의투자→서바이버→프로덕션까지 자동으로 처리됩니다.',
+    helpKey: 'pipeline',
+  },
 }

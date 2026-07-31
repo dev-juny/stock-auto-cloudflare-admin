@@ -58,7 +58,7 @@ export const handleApiProxy = async (
 
     const body = hasBody ? await request.text() : undefined;
 
-    const timeoutMs = request.method === 'GET' ? 30000 : 60000;
+    const timeoutMs = request.method === 'GET' ? 30000 : 120000;
     const controller = new AbortController();
     var timeoutId = setTimeout(function () { controller.abort() }, timeoutMs);
 
