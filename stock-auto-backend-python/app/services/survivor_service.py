@@ -19,6 +19,10 @@ logger = logging.getLogger(__name__)
 PAPER_TRADING_MIN_DAYS = 7
 SURVIVOR_EVAL_INTERVAL_HOURS = 24
 
+# Production candidate eligibility: paper trading must be completed
+CANDIDATE_MIN_PAPER_TRADES = 10
+CANDIDATE_MIN_PAPER_DAYS = 10
+
 # Default survivor score weights
 DEFAULT_WEIGHTS = {
     "recent_paper_return": 0.40,
@@ -291,12 +295,42 @@ async def get_survivor_pool() -> list[dict]:
 
 
 async def evaluate_production_candidates() -> dict:
+    def _paper_ready(score_data: dict) -> bool:
+        pt = (score_data.get("raw") or {}).get("paper_trading") or {}
+        return (
+            pt.get("total_trades", 0) >= CANDIDATE_MIN_PAPER_TRADES
+            and pt.get("days_active", 0) >= CANDIDATE_MIN_PAPER_DAYS
+        )
+
     survivors = await get_strategies_by_stage("survivor")
-    if not survivors:
-        return {"status": "SKIPPED", "message": "No survivors to evaluate"}
 
     candidates = await get_strategies_by_stage("production_candidate")
     production = await get_strategies_by_stage("production")
+
+    # Demote candidates that no longer satisfy the paper-trading completion criteria
+    demoted = 0
+    for c in candidates:
+        sid = c["strategy_id"]
+        try:
+            score_data = await calculate_survivor_score(sid)
+            if not _paper_ready(score_data):
+                await demote_strategy(
+                    sid, "survivor",
+                    f"Demoted from candidate: paper trading not completed "
+                    f"(<{CANDIDATE_MIN_PAPER_TRADES} trades or <{CANDIDATE_MIN_PAPER_DAYS} days)",
+                )
+                demoted += 1
+        except Exception as e:
+            logger.error("Candidate re-check error for strategy %s: %s", sid, e)
+
+    if not survivors:
+        return {
+            "status": "SKIPPED",
+            "message": "No survivors to evaluate",
+            "demoted_from_candidate": demoted,
+            "total_candidates": len(candidates) - demoted,
+            "total_production": len(production),
+        }
 
     scored = []
     for s in survivors:
@@ -314,6 +348,8 @@ async def evaluate_production_candidates() -> dict:
         if sid in [c["strategy_id"] for c in candidates]:
             continue
         if sid in [p["strategy_id"] for p in production]:
+            continue
+        if not _paper_ready(s):
             continue
         if s["survivor_score"] >= 0.5:
             await promote_strategy(sid, "Auto-promoted from survivor pool (score >= 0.5)")
@@ -333,7 +369,8 @@ async def evaluate_production_candidates() -> dict:
         "status": "SUCCESS",
         "survivors_evaluated": len(scored),
         "promoted_to_candidate": promoted,
-        "total_candidates": candidate_count + promoted,
+        "demoted_from_candidate": demoted,
+        "total_candidates": candidate_count + promoted - demoted,
         "total_production": production_count,
     }
 
