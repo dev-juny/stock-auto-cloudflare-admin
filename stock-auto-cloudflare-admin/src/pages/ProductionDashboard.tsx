@@ -9,6 +9,12 @@ import {
   RefreshCw, Save, ArrowUp, ArrowDown, Clock, Eye, Lock, Unlock,
 } from 'lucide-react'
 
+function safeDate(dateStr: string | null | undefined, opts?: Intl.DateTimeFormatOptions): string {
+  if (!dateStr) return '-'
+  const d = new Date(dateStr)
+  return isNaN(d.getTime()) ? '-' : d.toLocaleDateString('ko-KR', opts)
+}
+
 interface StageStrategy {
   strategy_id: number
   generation: number
@@ -527,7 +533,7 @@ export default function ProductionDashboard() {
                     <td className={`text-right px-1 font-mono tabular-nums ${(ss.total_pnl ?? 0) >= 0 ? 'text-green-400' : 'text-red-400'}`}>{(ss.total_pnl ?? 0).toFixed(0)}</td>
                     <td className={`text-right px-1 font-mono tabular-nums ${(ss.total_return ?? 0) >= 0 ? 'text-green-400' : 'text-red-400'}`}>{(ss.total_return ?? 0).toFixed(2)}%</td>
                     <td className="text-right px-1 font-mono tabular-nums text-text">{ss.win_rate ? `${ss.win_rate.toFixed(1)}%` : '-'}</td>
-                    <td className="text-right pl-2 text-text-muted font-mono text-[9px]">{ss.started_at ? new Date(ss.started_at).toLocaleDateString('ko-KR', { month: '2-digit', day: '2-digit' }) : '-'}</td>
+                    <td className="text-right pl-2 text-text-muted font-mono text-[9px]">{safeDate(ss.started_at, { month: '2-digit', day: '2-digit' })}</td>
                   </tr>
                 ))}
               </tbody>
@@ -651,7 +657,7 @@ export default function ProductionDashboard() {
                 {(expandedHistory ? data.history : data.history.slice(0, 10)).map((h, i) => (
                   <tr key={h.id ?? i} className="border-b border-white/5 hover:bg-white/5">
                     <td className="py-1 pr-2 text-text-muted font-mono whitespace-nowrap">
-                      {h.created_at ? new Date(h.created_at).toLocaleDateString('ko-KR', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : '-'}
+                      {safeDate(h.created_at, { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })}
                     </td>
                     <td className="px-1 text-text font-medium">{h.name || `#${h.strategy_id}`}</td>
                     <td className="px-1">

@@ -129,6 +129,45 @@ const CAPITAL_OPTIONS = [1000000, 5000000, 10000000, 50000000, 100000000]
 const POSITION_SIZE_OPTIONS = [100000, 300000, 500000, 1000000, 2000000]
 const MAX_POSITIONS_OPTIONS = [3, 5, 10, 20, 50]
 
+function formatEndDate(dateStr: string | null | undefined): string {
+  if (!dateStr) return '-'
+  const d = new Date(dateStr)
+  return isNaN(d.getTime()) ? '-' : d.toLocaleDateString()
+}
+
+function calcDaysHeld(entryDate: string): number {
+  const t = new Date(entryDate).getTime()
+  if (isNaN(t)) return 0
+  return Math.max(0, Math.floor((Date.now() - t) / 86400000))
+}
+
+function parseChartTime(time: unknown, today: Date): number | null {
+  if (typeof time === 'number') {
+    let ts = Math.floor(time)
+    if (ts > 1000000000000) ts = Math.floor(ts / 1000)
+    return ts >= 1000000000 ? ts : null
+  }
+  if (typeof time !== 'string') return null
+  const s = time.trim()
+  if (!s) return null
+  if (/^\d{4}-\d{2}-\d{2}/.test(s)) {
+    const d = new Date(s.replace(' ', 'T'))
+    if (!isNaN(d.getTime())) return Math.floor(d.getTime() / 1000)
+  }
+  const m = s.match(/^(\d{1,2}):(\d{2})/)
+  if (m) {
+    const h = Number(m[1])
+    const min = Number(m[2])
+    if (h >= 0 && h <= 23 && min >= 0 && min <= 59) {
+      const dt = new Date(today.getFullYear(), today.getMonth(), today.getDate(), h, min, 0)
+      if (!isNaN(dt.getTime())) return Math.floor(dt.getTime() / 1000)
+    }
+  }
+  const parsed = Date.parse(s)
+  if (!isNaN(parsed)) return Math.floor(parsed / 1000)
+  return null
+}
+
 export default function PaperTradingPage() {
   const [sessions, setSessions] = useState<PaperSession[]>([])
   const [currentSessionId, setCurrentSessionId] = useState<number | null>(null)
@@ -581,7 +620,7 @@ export default function PaperTradingPage() {
             </div>
             <div>
               <span className="text-text-muted">종료일</span>
-              <div className="text-text font-medium">{currentSession.ended_at ? new Date(currentSession.ended_at).toLocaleDateString() : '-'}</div>
+              <div className="text-text font-medium">{formatEndDate(currentSession.ended_at)}</div>
             </div>
           </div>
         </div>
@@ -917,7 +956,7 @@ export default function PaperTradingPage() {
                 </thead>
                 <tbody className="divide-y divide-surface-border">
                   {openPositions.map(p => {
-                    const daysHeld = Math.max(0, Math.floor((Date.now() - new Date(p.entry_date).getTime()) / 86400000))
+                    const daysHeld = calcDaysHeld(p.entry_date)
                     const absPnlPct = Math.abs(p.pnl_pct)
                     const barPct = Math.min(absPnlPct / 30 * 100, 100)
                     const posValue = p.current_price * p.quantity
@@ -1340,71 +1379,79 @@ function EquityCurveChart({ data, height = 160 }: { data: { time: string; value:
   const chartRef = useRef<ReturnType<typeof createChart> | null>(null)
 
   useEffect(() => {
-    if (!containerRef.current || data.length < 2) return
+    const el = containerRef.current
+    if (!el || data.length < 2) return
 
     if (chartRef.current) {
       chartRef.current.remove()
       chartRef.current = null
     }
 
-    const chart = createChart(containerRef.current, {
-      height,
-      layout: {
-        background: { type: ColorType.Solid, color: 'transparent' },
-        textColor: '#9CA3AF',
-        fontSize: 10,
-      },
-      grid: {
-        vertLines: { color: '#1F2937' },
-        horzLines: { color: '#1F2937' },
-      },
-      rightPriceScale: {
-        borderColor: '#1F2937',
-        scaleMargins: { top: 0.05, bottom: 0.2 },
-      },
-      timeScale: {
-        borderColor: '#1F2937',
-        visible: true,
-        timeVisible: true,
-        secondsVisible: false,
-      },
-      crosshair: {
-        vertLine: { color: '#6B7280', width: 1, style: 2, labelBackgroundColor: '#1F2937' },
-        horzLine: { color: '#6B7280', width: 1, style: 2, labelBackgroundColor: '#1F2937' },
-      },
-      handleScroll: false,
-      handleScale: false,
-      autoSize: true,
-    })
+    try {
+      const chart = createChart(el, {
+        height,
+        layout: {
+          background: { type: ColorType.Solid, color: 'transparent' },
+          textColor: '#9CA3AF',
+          fontSize: 10,
+        },
+        grid: {
+          vertLines: { color: '#1F2937' },
+          horzLines: { color: '#1F2937' },
+        },
+        rightPriceScale: {
+          borderColor: '#1F2937',
+          scaleMargins: { top: 0.05, bottom: 0.2 },
+        },
+        timeScale: {
+          borderColor: '#1F2937',
+          visible: true,
+          timeVisible: true,
+          secondsVisible: false,
+        },
+        crosshair: {
+          vertLine: { color: '#6B7280', width: 1, style: 2, labelBackgroundColor: '#1F2937' },
+          horzLine: { color: '#6B7280', width: 1, style: 2, labelBackgroundColor: '#1F2937' },
+        },
+        handleScroll: false,
+        handleScale: false,
+        autoSize: true,
+      })
 
-    const series = chart.addSeries(LineSeries, {
-      color: '#22C55E',
-      lineWidth: 2,
-      crosshairMarkerVisible: true,
-      crosshairMarkerRadius: 4,
-      priceFormat: {
-        type: 'custom',
-        formatter: (v: number) => '₩' + Math.round(v).toLocaleString(),
-      },
-      lastValueVisible: true,
-      priceLineVisible: false,
-    })
+      const series = chart.addSeries(LineSeries, {
+        color: '#22C55E',
+        lineWidth: 2,
+        crosshairMarkerVisible: true,
+        crosshairMarkerRadius: 4,
+        priceFormat: {
+          type: 'custom',
+          formatter: (v: number) => '₩' + Math.round(v).toLocaleString(),
+        },
+        lastValueVisible: true,
+        priceLineVisible: false,
+      })
 
-    // Convert HH:MM time strings to UTCTimestamp (seconds since epoch, today's date)
-    const today = new Date()
-    const chartData = data.map(d => {
-      const [h, m] = d.time.split(':').map(Number)
-      const dt = new Date(today.getFullYear(), today.getMonth(), today.getDate(), h, m, 0)
-      return { time: Math.floor(dt.getTime() / 1000) as any, value: d.value }
-    })
-    series.setData(chartData)
+      const today = new Date()
+      const chartData: any[] = []
+      for (const d of data) {
+        const t = parseChartTime(d.time, today)
+        if (t != null) chartData.push({ time: t, value: d.value })
+      }
+      if (chartData.length < 2) {
+        chart.remove()
+        return
+      }
+      series.setData(chartData)
 
-    chart.timeScale().fitContent()
-    chartRef.current = chart
+      chart.timeScale().fitContent()
+      chartRef.current = chart
 
-    return () => {
-      chart.remove()
-      chartRef.current = null
+      return () => {
+        chart.remove()
+        chartRef.current = null
+      }
+    } catch (e) {
+      console.error('[EquityCurveChart]', e)
     }
   }, [data, height])
 

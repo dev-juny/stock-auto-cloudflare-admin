@@ -47,42 +47,46 @@ export default function ValidationDashboardPage() {
     const charts: any[] = []
     const am = dashboard.advanced_metrics || {}
 
-    const opts = {
-      layout: { background: { type: ColorType.Solid, color: 'transparent' }, textColor: '#9CA3AF', fontSize: 10 },
-      grid: { vertLines: { color: '#1F2937' }, horzLines: { color: '#1F2937' } },
-      rightPriceScale: { borderColor: '#1F2937', scaleMargins: { top: 0.1, bottom: 0.1 } },
-      timeScale: { borderColor: '#1F2937', visible: false },
-      width: 0, height: 80,
-      handleScroll: false, handleScale: false,
-      autoSize: true,
-    }
+    try {
+      const opts = {
+        layout: { background: { type: ColorType.Solid, color: 'transparent' }, textColor: '#9CA3AF', fontSize: 10 },
+        grid: { vertLines: { color: '#1F2937' }, horzLines: { color: '#1F2937' } },
+        rightPriceScale: { borderColor: '#1F2937', scaleMargins: { top: 0.1, bottom: 0.1 } },
+        timeScale: { borderColor: '#1F2937', visible: false },
+        width: 0, height: 80,
+        handleScroll: false, handleScale: false,
+        autoSize: true,
+      }
 
-    if (sharpeRef.current && am.rolling_sharpe_series?.length > 0) {
-      const ch = createChart(sharpeRef.current, { ...opts })
-      const s = ch.addSeries(LineSeries, { color: '#22C55E', lineWidth: 2 })
-      s.setData(am.rolling_sharpe_series.map((v, i) => ({ time: String(i), value: v } as any)))
-      charts.push(ch)
-    }
+      if (sharpeRef.current && am.rolling_sharpe_series?.length > 0) {
+        const ch = createChart(sharpeRef.current, { ...opts })
+        const s = ch.addSeries(LineSeries, { color: '#22C55E', lineWidth: 2 })
+        s.setData(am.rolling_sharpe_series.map((v, i) => ({ time: 1704067200 + i * 86400, value: v } as any)))
+        charts.push(ch)
+      }
 
-    if (mddRef.current && am.rolling_mdd_series?.length > 0) {
-      const ch = createChart(mddRef.current, { ...opts })
-      const s = ch.addSeries(HistogramSeries, { color: '#EF4444' })
-      s.setData(am.rolling_mdd_series.map((v, i) => ({ time: String(i), value: Math.min(v, 0) } as any)))
-      charts.push(ch)
-    }
+      if (mddRef.current && am.rolling_mdd_series?.length > 0) {
+        const ch = createChart(mddRef.current, { ...opts })
+        const s = ch.addSeries(HistogramSeries, { color: '#EF4444' })
+        s.setData(am.rolling_mdd_series.map((v, i) => ({ time: 1704067200 + i * 86400, value: Math.min(v, 0) } as any)))
+        charts.push(ch)
+      }
 
-    if (pfRef.current && am.rolling_pf_series?.length > 0) {
-      const ch = createChart(pfRef.current, { ...opts })
-      const s = ch.addSeries(LineSeries, { color: '#3B82F6', lineWidth: 2 })
-      s.setData(am.rolling_pf_series.map((v, i) => ({ time: String(i), value: Math.min(v, 10) } as any)))
-      charts.push(ch)
-    }
+      if (pfRef.current && am.rolling_pf_series?.length > 0) {
+        const ch = createChart(pfRef.current, { ...opts })
+        const s = ch.addSeries(LineSeries, { color: '#3B82F6', lineWidth: 2 })
+        s.setData(am.rolling_pf_series.map((v, i) => ({ time: 1704067200 + i * 86400, value: Math.min(v, 10) } as any)))
+        charts.push(ch)
+      }
 
-    if (wrRef.current && am.rolling_win_rate_series?.length > 0) {
-      const ch = createChart(wrRef.current, { ...opts })
-      const s = ch.addSeries(LineSeries, { color: '#A78BFA', lineWidth: 2 })
-      s.setData(am.rolling_win_rate_series.map((v, i) => ({ time: String(i), value: v } as any)))
-      charts.push(ch)
+      if (wrRef.current && am.rolling_win_rate_series?.length > 0) {
+        const ch = createChart(wrRef.current, { ...opts })
+        const s = ch.addSeries(LineSeries, { color: '#A78BFA', lineWidth: 2 })
+        s.setData(am.rolling_win_rate_series.map((v, i) => ({ time: 1704067200 + i * 86400, value: v } as any)))
+        charts.push(ch)
+      }
+    } catch (e) {
+      console.error('[ValidationDashboardPage] chart error', e)
     }
 
     return () => charts.forEach(c => c.remove())
